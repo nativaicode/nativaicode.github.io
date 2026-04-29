@@ -58,64 +58,113 @@
   <div id="toastContainer"></div>
 
   <!-- SETTINGS MODAL -->
+  <!-- SETTINGS MODAL (ganti seluruh block settings modal yang lama) -->
   <div id="settingsBackdrop" class="modal-backdrop-ios" onclick="closeSettings()"></div>
   <div id="settingsModal" class="modal-ios settings-modal">
     <div class="modal-handle"></div>
+
+    <!-- Header sticky -->
     <div class="settings-header">
-      <h5>⚙️ Pengaturan</h5>
-      <button onclick="closeSettings()">✕</button>
+      <div class="settings-header-left">
+        <div class="settings-header-icon">⚙️</div>
+        <div>
+          <h5>Pengaturan</h5>
+          <p>Konfigurasi aplikasi kamu</p>
+        </div>
+      </div>
+      <button class="settings-header-close" onclick="closeSettings()">✕</button>
     </div>
+
     <div class="settings-body">
 
+      <!-- Identitas -->
       <div class="settings-section">
-        <div class="settings-section-title">Identitas Aplikasi</div>
-        <div class="mb-3">
-          <label class="form-label">Nama Aplikasi</label>
-          <input type="text" id="setAppName" class="form-control" placeholder="Household Finance">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Emoji Ikon</label>
-          <input type="text" id="setAppEmoji" class="form-control" placeholder="🏠" maxlength="4">
+        <div class="settings-section-label">Identitas Aplikasi</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-icon blue">🏷️</div>
+            <div class="settings-row-body">
+              <label for="setAppName">Nama Aplikasi</label>
+              <input type="text" id="setAppName" class="form-control" placeholder="Household Finance">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-icon purple">✨</div>
+            <div class="settings-row-body">
+              <label for="setAppEmoji">Ikon Emoji</label>
+              <input type="text" id="setAppEmoji" class="form-control" placeholder="🏠" maxlength="4">
+            </div>
+          </div>
         </div>
       </div>
 
+      <!-- Google Apps Script -->
       <div class="settings-section">
-        <div class="settings-section-title">Google Apps Script</div>
-        <div class="mb-3">
-          <label class="form-label">Script URL <span class="required">*</span></label>
-          <input type="url" id="setScriptUrl" class="form-control" placeholder="https://script.google.com/macros/s/...">
-          <small class="text-muted">Dapatkan dari Deploy → Manage Deployments di GAS</small>
+        <div class="settings-section-label">Koneksi Backend</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-icon green">🔗</div>
+            <div class="settings-row-body">
+              <label for="setScriptUrl">Google Apps Script URL <span class="required">*</span></label>
+              <div class="settings-url-wrap">
+                <input type="url" id="setScriptUrl" class="form-control"
+                  placeholder="https://script.google.com/macros/s/..."
+                  oninput="checkUrlStatus(this.value)">
+                <span class="settings-url-status empty" id="urlStatus">Belum diisi</span>
+              </div>
+              <small>Deploy → Manage Deployments di Google Apps Script</small>
+            </div>
+          </div>
         </div>
       </div>
 
+      <!-- Push Notification -->
       <div class="settings-section">
-        <div class="settings-section-title">Push Notification (Opsional)</div>
-        <div class="mb-3">
-          <label class="form-label">OneSignal App ID</label>
-          <input type="text" id="setOneSignalId" class="form-control" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-          <small class="text-muted">Kosongkan jika tidak pakai OneSignal</small>
+        <div class="settings-section-label">Notifikasi (Opsional)</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-icon amber">🔔</div>
+            <div class="settings-row-body">
+              <label for="setOneSignalId">OneSignal App ID</label>
+              <input type="text" id="setOneSignalId" class="form-control"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+              <small>Kosongkan jika tidak pakai push notification</small>
+            </div>
+          </div>
         </div>
       </div>
 
+      <!-- Kepemilikan -->
       <div class="settings-section">
-        <div class="settings-section-title">Kepemilikan</div>
-        <div class="mb-3">
-          <label class="form-label">Daftar Kepemilikan</label>
-          <input type="text" id="setKepemilikan" class="form-control" placeholder="Ayah, Ibu, Anak">
-          <small class="text-muted">Pisahkan dengan koma. Contoh: Ayah, Ibu, Anak</small>
+        <div class="settings-section-label">Data Keluarga</div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-icon pink">👥</div>
+            <div class="settings-row-body">
+              <label for="setKepemilikan">Daftar Anggota</label>
+              <input type="text" id="setKepemilikan" class="form-control" placeholder="Ayah, Ibu, Anak">
+              <small>Pisahkan dengan koma — contoh: Ayah, Ibu, Anak</small>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-icon blue">👛</div>
+            <div class="settings-row-body">
+              <label for="setDompetJson">Konfigurasi Dompet</label>
+              <textarea id="setDompetJson" class="form-control" rows="6"
+                placeholder='{"Cash":["Cash"],"M-Banking":["BCA","Mandiri"],"E-Wallet":["GoPay","Dana"]}'></textarea>
+              <small>Format JSON — <strong>Tipe</strong>: ["Detail1", "Detail2"]</small>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="settings-section">
-        <div class="settings-section-title">Dompet & Detail</div>
-        <div class="mb-3">
-          <label class="form-label">Konfigurasi Dompet (JSON)</label>
-          <textarea id="setDompetJson" class="form-control" rows="8" placeholder='{"Cash":["Cash"],"M-Banking":["BCA","Mandiri"],"E-Wallet":["GoPay","Dana"]}'></textarea>
-          <small class="text-muted">Format: {"Tipe Dompet": ["Detail1", "Detail2"]}</small>
-        </div>
+      <!-- Save -->
+      <div class="settings-save-wrap">
+        <button class="btn-save-settings" onclick="saveSettings()">
+          💾 Simpan Pengaturan
+        </button>
       </div>
 
-      <button class="btn-blue" onclick="saveSettings()">💾 Simpan Pengaturan</button>
     </div>
   </div>
 
@@ -123,9 +172,15 @@
 
     <!-- Topbar -->
     <div class="topbar">
-      <span class="app-title topbar-title">🏠 Household Finance</span>
+      <div class="topbar-left">
+        <div class="topbar-icon">🏠</div>
+        <div class="topbar-text">
+          <span class="topbar-label">Keuangan Keluarga</span>
+          <span class="topbar-title app-title">Household Finance</span>
+        </div>
+      </div>
       <div class="topbar-actions">
-        <button class="btn-icon" onclick="openSettings()" title="Settings">⚙️</button>
+        <button class="btn-icon" onclick="openSettings()" title="Pengaturan">⚙️</button>
         <button class="btn-icon" onclick="logout()" title="Keluar">🚪</button>
       </div>
     </div>
