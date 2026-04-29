@@ -1,5 +1,5 @@
 /* =====================================================
-   HOUSEHOLD FINANCE — style.css 
+   HOUSEHOLD FINANCE — style.css
    Updated: tambah .btn-settings-login & .badge-tetap
 ===================================================== */
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -510,6 +510,102 @@ body {
 }
 .settings-url-status.ok{background:#dcfce7;color:#15803d}
 .settings-url-status.empty{background:#fef3c7;color:#92400e}
+
+/* ── Kepemilikan & Dompet Builder ── */
+.btn-add-item{
+  width:100%;margin-top:8px;padding:10px 14px;
+  background:white;border:1.5px dashed var(--border);
+  border-radius:12px;color:var(--primary);font-weight:600;
+  font-size:.85rem;font-family:inherit;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:.2s;
+}
+.btn-add-item:hover{border-color:var(--primary);background:var(--primary-soft)}
+.btn-add-dompet{color:var(--secondary);margin-top:10px}
+.btn-add-dompet:hover{border-color:var(--secondary);background:#f5f3ff}
+
+/* Kepemilikan row */
+.kep-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-bottom:1px solid #f5f5f5;
+  animation:fadeUp .2s ease both;
+}
+.kep-row:last-child{border-bottom:none}
+.kep-avatar{
+  width:32px;height:32px;border-radius:10px;
+  background:linear-gradient(135deg,#e0e7ff,#c7d2fe);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.85rem;font-weight:700;color:var(--secondary);
+  flex-shrink:0;
+}
+.kep-row .form-control{flex:1;padding:8px 10px;font-size:.88rem}
+.btn-remove-row{
+  width:28px;height:28px;border:none;background:#fee2e2;
+  border-radius:8px;cursor:pointer;color:#b91c1c;font-size:.9rem;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:.15s;
+}
+.btn-remove-row:hover{background:#fca5a5}
+
+/* Dompet group card */
+.dompet-group{
+  background:white;border:1px solid var(--border);
+  border-radius:16px;margin-bottom:10px;overflow:hidden;
+  box-shadow:var(--shadow-sm);animation:fadeUp .2s ease both;
+}
+.dompet-group-header{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 14px;background:#fafafa;
+  border-bottom:1px solid var(--border);
+}
+.dompet-group-icon{
+  width:32px;height:32px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;
+}
+.dompet-group-icon.cash{background:#fef9c3}
+.dompet-group-icon.bank{background:#dbeafe}
+.dompet-group-icon.ewallet{background:#f0fdf4}
+.dompet-group-icon.other{background:#f5f3ff}
+.dompet-type-input{
+  flex:1;border:none;background:transparent;
+  font-size:.9rem;font-weight:700;color:var(--text);
+  font-family:inherit;outline:none;
+}
+.dompet-type-input::placeholder{color:var(--muted);font-weight:400}
+.btn-remove-group{
+  width:28px;height:28px;border:none;background:#fee2e2;
+  border-radius:8px;cursor:pointer;color:#b91c1c;font-size:.85rem;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:.15s;
+}
+.btn-remove-group:hover{background:#fca5a5}
+
+/* Detail items dalam dompet */
+.dompet-details{padding:8px 14px 12px}
+.detail-row{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:6px;animation:fadeUp .15s ease both;
+}
+.detail-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--border);flex-shrink:0;margin-left:4px;
+}
+.detail-row .form-control{flex:1;padding:7px 10px;font-size:.85rem}
+.btn-remove-detail{
+  width:24px;height:24px;border:none;background:transparent;
+  border-radius:6px;cursor:pointer;color:var(--muted);font-size:.85rem;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:.15s;
+}
+.btn-remove-detail:hover{background:#fee2e2;color:#b91c1c}
+.btn-add-detail{
+  width:100%;padding:7px 10px;margin-top:2px;
+  background:transparent;border:1px dashed #d1d5db;
+  border-radius:10px;color:var(--muted);font-size:.8rem;
+  font-family:inherit;cursor:pointer;transition:.2s;
+  display:flex;align-items:center;justify-content:center;gap:4px;font-weight:600;
+}
+.btn-add-detail:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
 
 /* Save button */
 .settings-save-wrap{
