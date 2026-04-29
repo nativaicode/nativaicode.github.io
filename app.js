@@ -687,24 +687,20 @@ function switchModalTab(tab) {
 // ─── SETTINGS MODAL ──────────────────────────────────
 function openSettings() {
   const cfg = getCfg();
-
-  // App name
+ 
   document.getElementById("setAppName").value  = cfg.appName  || "";
   document.getElementById("setAppEmoji").value = cfg.appEmoji || "🏠";
-
-  // Script URL & OneSignal
   document.getElementById("setScriptUrl").value    = cfg.scriptUrl    || "";
   document.getElementById("setOneSignalId").value  = cfg.oneSignalAppId || "";
-
-  // Kepemilikan
   document.getElementById("setKepemilikan").value =
     (cfg.kepemilikan || cfg.defaultKepemilikan || ["Saya"]).join(", ");
-
-  // Dompet
   const dompetCfg = cfg.dompet || cfg.defaultDompet || {};
   document.getElementById("setDompetJson").value =
     JSON.stringify(dompetCfg, null, 2);
-
+ 
+  // ← BARU: update indikator URL
+  checkUrlStatus(cfg.scriptUrl || "");
+ 
   document.getElementById("settingsBackdrop").classList.add("show");
   document.getElementById("settingsModal").classList.add("show");
 }
@@ -939,3 +935,19 @@ window.addEventListener("load", () => {
     if (e.key === "Enter") checkPassword();
   });
 });
+
+// Update indikator status URL di settings form
+function checkUrlStatus(val) {
+  const el = document.getElementById("urlStatus");
+  if (!el) return;
+  if (!val || !val.trim()) {
+    el.textContent = "Belum diisi";
+    el.className = "settings-url-status empty";
+  } else if (val.includes("script.google.com")) {
+    el.textContent = "✓ Terisi";
+    el.className = "settings-url-status ok";
+  } else {
+    el.textContent = "Cek URL";
+    el.className = "settings-url-status empty";
+  }
+}
