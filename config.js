@@ -19,7 +19,7 @@ const APP_CONFIG = {
 
   // ─── OneSignal App ID (opsional) ──────────────────
   // Kosongkan string jika tidak pakai push notification
-  oneSignalAppId: "",
+  oneSignalAppId: "45d19bcc-2125-4184-a25a-8a91e26dbbdb",
 
   // ─── Default Kepemilikan ──────────────────────────
   // Akan digunakan jika belum dikonfigurasi via Settings
