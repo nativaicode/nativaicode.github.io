@@ -10,12 +10,12 @@
 
 const APP_CONFIG = {
   // ─── App Identity ─────────────────────────────────
-  appName:  "Household Finance",
+  appName:  "Household Finance Nativan",
   appEmoji: "🏠",
 
   // ─── Google Apps Script URL ───────────────────────
   // Dapatkan URL ini setelah deploy GAS (lihat README)
-  scriptUrl: "",
+  scriptUrl: "https://script.google.com/macros/s/AKfycbwHWjsg4gmwkZsAm6d103CV2VQY3FqBIBYMyb8kKhY1jyjB7Y0PPnX8eBeKlIGCcrBy/exec",
 
   // ─── OneSignal App ID (opsional) ──────────────────
   // Kosongkan string jika tidak pakai push notification
