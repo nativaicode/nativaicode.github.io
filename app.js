@@ -331,8 +331,11 @@ async function simpanTransaksi() {
       action: "addTransaksi", jenis, kategori, nominal,
       deskripsi:    document.getElementById("deskripsi").value.trim(),
       dompet:       document.getElementById("dompet").value,
-      dompetDetail: document.getElementById("dompetDetail").value,
-      kepemilikan:  document.getElementById("kepemilikan").value,
+      dompetDetail:    document.getElementById("dompetDetail").value,
+      kepemilikan:     document.getElementById("kepemilikan").value,
+      tipePengeluaran: jenis === "Pengeluaran"
+                         ? (document.getElementById("tipePengeluaran")?.value || "Rutin")
+                         : "",
     });
     showLoading(false);
     if (result.status === "OK") {
@@ -340,6 +343,9 @@ async function simpanTransaksi() {
       document.getElementById("kategori").value  = "";
       document.getElementById("nominal").value   = "";
       document.getElementById("deskripsi").value = "";
+      if (document.getElementById("tipePengeluaran")) document.getElementById("tipePengeluaran").value = "Rutin";
+      if (document.getElementById("tipePengeluaranWrap")) document.getElementById("tipePengeluaranWrap").style.display = "none";
+      if (document.getElementById("jenis")) document.getElementById("jenis").value = "Pendapatan";
       showSuccessNotif(
         jenis === "Pendapatan" ? "💰" : "💸",
         jenis === "Pendapatan" ? "Pendapatan Tercatat ✓" : "Pengeluaran Tercatat ✓",
@@ -442,7 +448,7 @@ function getPeriodeKey(s) {
 
 // ─── RENDER DASHBOARD ────────────────────────────────
 function renderDashboard() {
-  let pendapatan = 0, pengeluaran = 0;
+  let pendapatan = 0, pengeluaranTotal = 0, pengeluaranRutin = 0, pengeluaranTetap = 0;
   const saldoPerDompet = {};
 
   semuaData.forEach(trx => {
@@ -450,15 +456,27 @@ function renderDashboard() {
     const j = String(trx.jenis || "").trim().toLowerCase();
     const key = `${trx.dompet}||${trx.dompetDetail}`;
     if (!saldoPerDompet[key]) saldoPerDompet[key] = { dompet: trx.dompet, detail: trx.dompetDetail, saldo: 0 };
-    if (j === "pendapatan")       { pendapatan += n; saldoPerDompet[key].saldo += n; }
-    else if (j === "pengeluaran") { pengeluaran += n; saldoPerDompet[key].saldo -= n; }
-    else if (j === "transfer-keluar") saldoPerDompet[key].saldo -= n;
-    else if (j === "transfer-masuk")  saldoPerDompet[key].saldo += n;
+    if (j === "pendapatan") {
+      pendapatan += n;
+      saldoPerDompet[key].saldo += n;
+    } else if (j === "pengeluaran") {
+      pengeluaranTotal += n;
+      saldoPerDompet[key].saldo -= n;
+      if ((trx.tipePengeluaran || "Rutin") === "Tetap") pengeluaranTetap += n;
+      else pengeluaranRutin += n;
+    } else if (j === "transfer-keluar") saldoPerDompet[key].saldo -= n;
+    else if (j === "transfer-masuk")    saldoPerDompet[key].saldo += n;
   });
 
   document.getElementById("totalPendapatan").textContent  = formatRupiah(pendapatan);
-  document.getElementById("totalPengeluaran").textContent = formatRupiah(pengeluaran);
-  document.getElementById("saldo").textContent            = formatRupiah(pendapatan - pengeluaran);
+  document.getElementById("totalPengeluaran").textContent = formatRupiah(pengeluaranTotal);
+  document.getElementById("saldo").textContent            = formatRupiah(pendapatan - pengeluaranTotal);
+
+  // Ringkasan pengeluaran Rutin vs Tetap
+  const elRutin = document.getElementById("totalPengeluaranRutin");
+  const elTetap = document.getElementById("totalPengeluaranTetap");
+  if (elRutin) elRutin.textContent = formatRupiah(pengeluaranRutin);
+  if (elTetap) elTetap.textContent = formatRupiah(pengeluaranTetap);
 
   // Render saldo per tipe dompet (dinamis)
   const dompetOpts = getDompetOptions();
@@ -497,7 +515,8 @@ function updateBudget() {
   let realisasi = 0;
   semuaData.forEach(t => {
     const tgl = new Date(t.tanggal);
-    if (tgl >= periode.start && tgl <= periode.end && String(t.jenis).toLowerCase() === "pengeluaran")
+    const isRutin = (t.tipePengeluaran || "Rutin") === "Rutin";
+    if (tgl >= periode.start && tgl <= periode.end && String(t.jenis).toLowerCase() === "pengeluaran" && isRutin)
       realisasi += Number(String(t.nominal).replace(/\./g, "")) || 0;
   });
   if (!cur || !cur.budget) {
@@ -611,7 +630,11 @@ function renderRiwayat(data) {
           <span class="trx-detail-meta">${trx.kepemilikan || ""} • ${trx.dompet || ""} (${trx.dompetDetail || ""})</span>
           <span class="trx-nominal ${bc}">${formatRupiah(trx.nominal)}</span>
         </div>
-        <small class="trx-deskripsi">${capitalizeFirst(trx.deskripsi || "-")}</small>
+        <small class="trx-deskripsi">${capitalizeFirst(trx.deskripsi || "-")}${
+        trx.jenis === "Pengeluaran" && trx.tipePengeluaran === "Tetap"
+          ? " <span class="badge-tetap">📌 Tetap</span>"
+          : ""
+      }</small>
       </div>`;
   });
 }
@@ -641,6 +664,18 @@ function closeModal() {
   document.getElementById("modalTambah").classList.remove("show");
   document.getElementById("modalBackdrop").classList.remove("show");
 }
+function toggleTipePengeluaran() {
+  const jenis = document.getElementById("jenis")?.value;
+  const wrap  = document.getElementById("tipePengeluaranWrap");
+  if (wrap) wrap.style.display = jenis === "Pengeluaran" ? "" : "none";
+}
+
+function onTipePengeluaranChange(sel) {
+  if (!sel) return;
+  if (sel.value === "Tetap") sel.classList.add("tetap-selected");
+  else sel.classList.remove("tetap-selected");
+}
+
 function switchModalTab(tab) {
   const isTrx = tab === "trx";
   document.getElementById("panelTrx").style.display      = isTrx ? "" : "none";
