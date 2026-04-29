@@ -58,7 +58,7 @@
   <div id="toastContainer"></div>
 
   <!-- SETTINGS MODAL -->
-  <!-- SETTINGS MODAL (ganti seluruh block settings modal yang lama) -->
+  <!-- SETTINGS MODAL — ganti seluruh block settings modal lama dengan ini -->
   <div id="settingsBackdrop" class="modal-backdrop-ios" onclick="closeSettings()"></div>
   <div id="settingsModal" class="modal-ios settings-modal">
     <div class="modal-handle"></div>
@@ -134,28 +134,22 @@
         </div>
       </div>
 
-      <!-- Kepemilikan -->
+      <!-- Anggota Keluarga -->
       <div class="settings-section">
-        <div class="settings-section-label">Data Keluarga</div>
-        <div class="settings-card">
-          <div class="settings-row">
-            <div class="settings-row-icon pink">👥</div>
-            <div class="settings-row-body">
-              <label for="setKepemilikan">Daftar Anggota</label>
-              <input type="text" id="setKepemilikan" class="form-control" placeholder="Ayah, Ibu, Anak">
-              <small>Pisahkan dengan koma — contoh: Ayah, Ibu, Anak</small>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div class="settings-row-icon blue">👛</div>
-            <div class="settings-row-body">
-              <label for="setDompetJson">Konfigurasi Dompet</label>
-              <textarea id="setDompetJson" class="form-control" rows="6"
-                placeholder='{"Cash":["Cash"],"M-Banking":["BCA","Mandiri"],"E-Wallet":["GoPay","Dana"]}'></textarea>
-              <small>Format JSON — <strong>Tipe</strong>: ["Detail1", "Detail2"]</small>
-            </div>
-          </div>
-        </div>
+        <div class="settings-section-label">Anggota Keluarga</div>
+        <div class="settings-card" id="kepemilikanList"></div>
+        <button class="btn-add-item" onclick="addKepemilikanRow()">
+          <span>＋</span> Tambah Anggota
+        </button>
+      </div>
+
+      <!-- Dompet Builder -->
+      <div class="settings-section">
+        <div class="settings-section-label">Dompet &amp; Rekening</div>
+        <div id="dompetBuilder"></div>
+        <button class="btn-add-item btn-add-dompet" onclick="addDompetGroup()">
+          <span>＋</span> Tambah Tipe Dompet
+        </button>
       </div>
 
       <!-- Save -->
