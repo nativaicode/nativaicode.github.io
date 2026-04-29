@@ -686,20 +686,24 @@ function switchModalTab(tab) {
 
 // ─── SETTINGS MODAL ──────────────────────────────────
 function openSettings() {
-  const cfg = getCfg();
+  var cfg = getCfg();
  
-  document.getElementById("setAppName").value  = cfg.appName  || "";
-  document.getElementById("setAppEmoji").value = cfg.appEmoji || "🏠";
-  document.getElementById("setScriptUrl").value    = cfg.scriptUrl    || "";
-  document.getElementById("setOneSignalId").value  = cfg.oneSignalAppId || "";
-  document.getElementById("setKepemilikan").value =
-    (cfg.kepemilikan || cfg.defaultKepemilikan || ["Saya"]).join(", ");
-  const dompetCfg = cfg.dompet || cfg.defaultDompet || {};
-  document.getElementById("setDompetJson").value =
-    JSON.stringify(dompetCfg, null, 2);
+  document.getElementById("setAppName").value     = cfg.appName  || "";
+  document.getElementById("setAppEmoji").value    = cfg.appEmoji || "🏠";
+  document.getElementById("setScriptUrl").value   = cfg.scriptUrl || "";
+  document.getElementById("setOneSignalId").value = cfg.oneSignalAppId || "";
  
-  // ← BARU: update indikator URL
   checkUrlStatus(cfg.scriptUrl || "");
+ 
+  var kepList = cfg.kepemilikan || cfg.defaultKepemilikan || ["Saya"];
+  renderKepemilikanList(kepList);
+ 
+  var dompetCfg = cfg.dompet || cfg.defaultDompet || {
+    "Cash": ["Cash"],
+    "M-Banking": ["Bank A"],
+    "E-Wallet": ["GoPay"]
+  };
+  renderDompetBuilder(dompetCfg);
  
   document.getElementById("settingsBackdrop").classList.add("show");
   document.getElementById("settingsModal").classList.add("show");
@@ -711,44 +715,180 @@ function closeSettings() {
 }
 
 function saveSettings() {
-  const appName    = document.getElementById("setAppName").value.trim();
-  const appEmoji   = document.getElementById("setAppEmoji").value.trim();
-  const scriptUrl  = document.getElementById("setScriptUrl").value.trim();
-  const oneSignal  = document.getElementById("setOneSignalId").value.trim();
-  const kepRaw     = document.getElementById("setKepemilikan").value;
-  const dompetRaw  = document.getElementById("setDompetJson").value;
-
-  // Validasi kepemilikan
-  const kepemilikan = kepRaw.split(",").map(s => s.trim()).filter(Boolean);
+  var appName   = document.getElementById("setAppName").value.trim();
+  var appEmoji  = document.getElementById("setAppEmoji").value.trim();
+  var scriptUrl = document.getElementById("setScriptUrl").value.trim();
+  var oneSignal = document.getElementById("setOneSignalId").value.trim();
+ 
+  var kepemilikan = readKepemilikan();
   if (!kepemilikan.length) {
-    showToast("Kepemilikan tidak boleh kosong", "warning"); return;
+    showToast("Tambahkan minimal 1 anggota keluarga", "warning"); return;
   }
-
-  // Validasi dompet JSON
-  let dompet;
-  try { dompet = JSON.parse(dompetRaw); }
-  catch(_) { showToast("Format dompet tidak valid (harus JSON)", "error"); return; }
-
-  saveCfg({ appName, appEmoji, scriptUrl, oneSignalAppId: oneSignal, kepemilikan, dompet });
-
-  // Update app name di UI
+ 
+  var dompet = readDompet();
+  if (!Object.keys(dompet).length) {
+    showToast("Tambahkan minimal 1 tipe dompet", "warning"); return;
+  }
+ 
+  saveCfg({ appName: appName, appEmoji: appEmoji, scriptUrl: scriptUrl, oneSignalAppId: oneSignal, kepemilikan: kepemilikan, dompet: dompet });
+ 
   if (appName) {
-    const titleEls = document.querySelectorAll(".app-title");
-    titleEls.forEach(el => el.textContent = `${appEmoji} ${appName}`);
+    var emoji = appEmoji || "🏠";
+    document.querySelectorAll(".app-title").forEach(function(el) { el.textContent = emoji + " " + appName; });
+    var topbarTitle = document.querySelector(".topbar-title");
+    if (topbarTitle) topbarTitle.textContent = appName;
+    var topbarIcon = document.querySelector(".topbar-icon");
+    if (topbarIcon) topbarIcon.textContent = emoji;
     document.title = appName;
   }
-
-  // Rebuild selects
+ 
   rebuildAllSelects();
-
-  // Reinit OneSignal jika App ID berubah
+ 
   if (oneSignal && oneSignal !== APP_CONFIG.oneSignalAppId) {
     _initOneSignal();
   }
-
+ 
   closeSettings();
   showToast("Pengaturan tersimpan ✓", "success");
   localStorage.removeItem(CACHE_KEY);
+}
+
+// ─── URL STATUS INDICATOR ─────────────────────────────────────────────
+function checkUrlStatus(val) {
+  const el = document.getElementById("urlStatus");
+  if (!el) return;
+  if (!val || !val.trim()) {
+    el.textContent = "Belum diisi";
+    el.className = "settings-url-status empty";
+  } else if (val.includes("script.google.com")) {
+    el.textContent = "✓ Terisi";
+    el.className = "settings-url-status ok";
+  } else {
+    el.textContent = "Cek URL";
+    el.className = "settings-url-status empty";
+  }
+}
+ 
+// ─── KEPEMILIKAN BUILDER ──────────────────────────────────────────────
+function renderKepemilikanList(list) {
+  const container = document.getElementById("kepemilikanList");
+  if (!container) return;
+  container.innerHTML = "";
+  list.forEach(nama => addKepemilikanRow(nama));
+}
+ 
+function addKepemilikanRow(nilai) {
+  nilai = typeof nilai === "string" ? nilai : "";
+  const container = document.getElementById("kepemilikanList");
+  if (!container) return;
+  const row = document.createElement("div");
+  row.className = "kep-row";
+  row.innerHTML =
+    '<div class="kep-avatar">👤</div>' +
+    '<input type="text" class="form-control kep-input" placeholder="Nama anggota (contoh: Ayah)" value="' + nilai + '">' +
+    '<button class="btn-remove-row" onclick="removeRow(this)" title="Hapus">✕</button>';
+  container.appendChild(row);
+}
+ 
+function removeRow(btn) {
+  var target = btn.closest ? btn.closest(".kep-row, .detail-row") : null;
+  if (target) target.remove();
+}
+ 
+// ─── DOMPET BUILDER ───────────────────────────────────────────────────
+var DOMPET_ICONS = {
+  "cash":      { icon: "💵", cls: "cash" },
+  "m-banking": { icon: "🏦", cls: "bank" },
+  "bank":      { icon: "🏦", cls: "bank" },
+  "e-wallet":  { icon: "📱", cls: "ewallet" },
+  "ewallet":   { icon: "📱", cls: "ewallet" },
+};
+ 
+function getDompetIcon(tipe) {
+  var key = (tipe || "").toLowerCase().replace(/\s/g, "");
+  for (var k in DOMPET_ICONS) {
+    if (key.includes(k)) return DOMPET_ICONS[k];
+  }
+  return { icon: "💰", cls: "other" };
+}
+ 
+function renderDompetBuilder(dompetObj) {
+  var builder = document.getElementById("dompetBuilder");
+  if (!builder) return;
+  builder.innerHTML = "";
+  Object.keys(dompetObj).forEach(function(tipe) {
+    addDompetGroup(tipe, dompetObj[tipe]);
+  });
+}
+ 
+function addDompetGroup(tipe, details) {
+  tipe = tipe || "";
+  details = details || [""];
+  var builder = document.getElementById("dompetBuilder");
+  if (!builder) return;
+  var info = getDompetIcon(tipe);
+  var group = document.createElement("div");
+  group.className = "dompet-group";
+  group.innerHTML =
+    '<div class="dompet-group-header">' +
+      '<div class="dompet-group-icon ' + info.cls + '" data-icon-el>' + info.icon + '</div>' +
+      '<input type="text" class="dompet-type-input" placeholder="Tipe dompet (contoh: M-Banking)" value="' + tipe + '" oninput="updateGroupIcon(this)">' +
+      '<button class="btn-remove-group" onclick="this.closest(\'.dompet-group\').remove()" title="Hapus tipe">✕</button>' +
+    '</div>' +
+    '<div class="dompet-details" data-details></div>';
+  builder.appendChild(group);
+ 
+  var detailsEl = group.querySelector("[data-details]");
+  details.forEach(function(d) { addDetailRow(detailsEl, d); });
+ 
+  var btnAdd = document.createElement("button");
+  btnAdd.className = "btn-add-detail";
+  btnAdd.innerHTML = '<span>＋</span> Tambah rekening';
+  btnAdd.onclick = function() { addDetailRow(detailsEl, "", btnAdd); };
+  detailsEl.appendChild(btnAdd);
+}
+ 
+function addDetailRow(container, nilai, beforeEl) {
+  nilai = nilai || "";
+  var row = document.createElement("div");
+  row.className = "detail-row";
+  row.innerHTML =
+    '<div class="detail-dot"></div>' +
+    '<input type="text" class="form-control detail-input" placeholder="Nama rekening (contoh: BCA, GoPay)" value="' + nilai + '">' +
+    '<button class="btn-remove-detail" onclick="removeRow(this)" title="Hapus">✕</button>';
+  if (beforeEl) container.insertBefore(row, beforeEl);
+  else container.appendChild(row);
+}
+ 
+function updateGroupIcon(input) {
+  var header = input.closest(".dompet-group-header");
+  if (!header) return;
+  var iconEl = header.querySelector("[data-icon-el]");
+  if (!iconEl) return;
+  var info = getDompetIcon(input.value);
+  iconEl.textContent = info.icon;
+  iconEl.className = "dompet-group-icon " + info.cls;
+}
+ 
+// ─── READ VALUES FROM BUILDER ─────────────────────────────────────────
+function readKepemilikan() {
+  return Array.from(document.querySelectorAll(".kep-input"))
+    .map(function(i) { return i.value.trim(); })
+    .filter(Boolean);
+}
+ 
+function readDompet() {
+  var result = {};
+  document.querySelectorAll(".dompet-group").forEach(function(group) {
+    var tipeEl = group.querySelector(".dompet-type-input");
+    var tipe = tipeEl ? tipeEl.value.trim() : "";
+    if (!tipe) return;
+    var details = Array.from(group.querySelectorAll(".detail-input"))
+      .map(function(i) { return i.value.trim(); })
+      .filter(Boolean);
+    result[tipe] = details.length ? details : [tipe];
+  });
+  return result;
 }
 
 // ─── LOGIN ────────────────────────────────────────────
