@@ -19,8 +19,9 @@ function getPassword() {
 function doGet(e) {
   if (!e || !e.parameter) return jsonOut({ status: "ERROR", message: "No parameter" });
   const action = e.parameter.action || "getData";
-  if (action === "checkPassword") return handleCheckPassword(e.parameter);
-  if (action === "addTransaksi")  return handleAddTransaksi(e.parameter);
+  if (action === "checkPassword")  return handleCheckPassword(e.parameter);
+  if (action === "changePassword") return handleChangePassword(e.parameter);
+  if (action === "addTransaksi")   return handleAddTransaksi(e.parameter);
   if (action === "addTransfer")   return handleAddTransfer(e.parameter);
   if (action === "setBudget")     return handleSetBudget(e.parameter);
   return handleGetData();
@@ -33,8 +34,9 @@ function doPost(e) {
     else if (e.postData && e.postData.contents) p = JSON.parse(e.postData.contents);
     else return jsonOut({ status: "ERROR", message: "No data" });
     const action = p.action || "";
-    if (action === "checkPassword") return handleCheckPassword(p);
-    if (action === "addTransaksi")  return handleAddTransaksi(p);
+    if (action === "checkPassword")  return handleCheckPassword(p);
+    if (action === "changePassword") return handleChangePassword(p);
+    if (action === "addTransaksi")   return handleAddTransaksi(p);
     if (action === "addTransfer")   return handleAddTransfer(p);
     if (action === "setBudget")     return handleSetBudget(p);
     if (action === "getData")       return handleGetData();
@@ -57,11 +59,13 @@ function handleAddTransaksi(p) {
     const sheet = getSheet("Transaksi");
     sheet.appendRow([
       new Date(), p.jenis || "", p.kategori || "", p.deskripsi || "",
-      Number(p.nominal) || 0, p.dompet || "", p.dompetDetail || "", p.kepemilikan || ""
+      Number(p.nominal) || 0, p.dompet || "", p.dompetDetail || "", p.kepemilikan || "",
+      p.jenis === "Pengeluaran" ? (p.tipePengeluaran || "Rutin") : ""
     ]);
-    const emoji = (p.jenis || "") === "Pendapatan" ? "💰" : "💸";
+    const emoji = (p.jenis || "") === "Pendapatan" ? "💰" : (p.tipePengeluaran === "Tetap" ? "📌" : "💸");
+    const tipeLabel = p.jenis === "Pengeluaran" && p.tipePengeluaran === "Tetap" ? " [Tetap]" : "";
     _sendOneSignalPush(
-      `${emoji} ${p.jenis} — ${p.kepemilikan}`,
+      `${emoji} ${p.jenis}${tipeLabel} — ${p.kepemilikan}`,
       `${p.kategori}: ${_fmtRp(Number(p.nominal) || 0)}${p.deskripsi ? " · " + p.deskripsi : ""}`
     );
     return jsonOut({ status: "OK" });
@@ -144,8 +148,9 @@ function handleGetData() {
         deskripsi:    String(dataTrx[i][3] || ""),
         nominal:      Number(dataTrx[i][4]) || 0,
         dompet:       String(dataTrx[i][5] || ""),
-        dompetDetail: String(dataTrx[i][6] || ""),
-        kepemilikan:  String(dataTrx[i][7] || ""),
+        dompetDetail:    String(dataTrx[i][6] || ""),
+        kepemilikan:     String(dataTrx[i][7] || ""),
+        tipePengeluaran: String(dataTrx[i][8] || "Rutin"),
       });
     }
 
