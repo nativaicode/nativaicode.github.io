@@ -632,7 +632,7 @@ function renderRiwayat(data) {
         </div>
         <small class="trx-deskripsi">${capitalizeFirst(trx.deskripsi || "-")}${
         trx.jenis === "Pengeluaran" && trx.tipePengeluaran === "Tetap"
-          ? " <span class="badge-tetap">📌 Tetap</span>"
+          ? ' <span class=\'badge-tetap\'>📌 Tetap</span>'
           : ""
       }</small>
       </div>`;
