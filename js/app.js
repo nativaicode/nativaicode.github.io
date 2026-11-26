@@ -277,19 +277,19 @@ VIEWS.home = {
       <div id="hOffline"></div>
       <div class="grid grid-home">
         <div class="grid">
-          <section class="card hero" id="hHero"></section>
-          <section class="card" id="hBudget"></section>
-          <section class="card">
+          <section class="card hero o1" id="hHero"></section>
+          <section class="card o3" id="hBudget"></section>
+          <section class="card o4">
             <div class="card-head"><h2>Transaksi terbaru</h2><a class="link-btn" href="#/history">Lihat semua</a></div>
             <div id="hRecent"></div>
           </section>
         </div>
         <div class="grid">
-          <section class="card">
+          <section class="card o2">
             <div class="card-head"><h2>Dompet & Rekening</h2><button class="link-btn" id="hAddWallet">+ Tambah</button></div>
             <div class="wallet-strip" id="hWallets"></div>
           </section>
-          <section class="card">
+          <section class="card o5">
             <div class="card-head"><h2>Pengeluaran per kategori</h2><a class="link-btn" href="#/stats">Detail</a></div>
             <div id="hCats"></div>
           </section>
