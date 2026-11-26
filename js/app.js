@@ -11,7 +11,8 @@ import { computeInsights } from "./insights.js";
 import { installPlan, sortedBills, billRow, openBillPay } from "./plan.js";
 import { setupLock, lockSettingsSheet, lockConfigured } from "./lock.js";
 import { shareReport } from "./report.js";
-import { pushSupported, enableDailyReminder, disableDailyReminder, dailyReminderOn } from "./push.js";
+import { pushSupported, enableDailyReminder, disableDailyReminder, dailyReminderOn, saveMemberNotif } from "./push.js";
+import { passesMemberPref, buildActivityMessage } from "./reminder-logic.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const appEl = document.getElementById("app");
@@ -538,6 +539,45 @@ function templatesSheet() {
   s.$("#tpList").onclick = async e => { const b = e.target.closest("[data-del]"); if (!b) return; list.splice(+b.dataset.del, 1); draw(); await D.setTemplates(list); toast("Template dihapus", "success"); };
 }
 
+/* ─── Notifikasi transaksi anggota lain ─── */
+// A. Realtime saat aplikasi terbuka / baru diminimize
+D.activityBus.add(items => {
+  const pref = D.memberNotifPref();
+  const list = items.filter(t => passesMemberPref(t, pref));
+  if (!list.length) return;
+  const msg = buildActivityMessage(list, state.household?.memberInfo || {}, walletName);
+  if (!document.hidden) toast(`👥 ${msg.title}: ${msg.body.split("\n")[0].replace(/^\S+\s/, "")}`, "info", 6000);
+  else if ("Notification" in window && Notification.permission === "granted") {
+    navigator.serviceWorker?.ready.then(r => r.showNotification(`👥 ${msg.title}`, { body: msg.body, icon: "assets/icons/icon-192.png", tag: "activity", renotify: true, data: { url: "./#/history" } })).catch(() => {});
+  }
+});
+function memberNotifSheet() {
+  const cur = D.memberNotifPref();
+  return new Promise(resolve => {
+    const s = openSheet({
+      title: "Notifikasi transaksi anggota",
+      onClose: resolve,
+      body: `<p class="muted" style="margin-top:0">Dapat kabar saat anggota lain mencatat transaksi. Saat aplikasi terbuka muncul langsung; saat tertutup dikirim berkala (±15–30 menit). Transaksimu sendiri tidak dikirim ke HP-mu.</p>
+        <div class="set-list" style="margin-bottom:12px">
+          ${[["all", "🔔 Semua transaksi", "Pengeluaran, pemasukan & pindah dana"], ["min", "💸 Hanya pengeluaran besar", "Di atas nominal tertentu"], ["off", "🔕 Mati", ""]].map(([k, t, d]) => `<label class="set-item" style="cursor:pointer"><input type="radio" name="mn" value="${k}" ${cur.mode === k ? "checked" : ""}><div class="si-main"><b>${t}</b>${d ? `<small>${d}</small>` : ""}</div></label>`).join("")}
+        </div>
+        <div class="field" id="mnMinWrap"><label for="mnMin">Minimal pengeluaran</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="mnMin" inputmode="numeric" value="${formatNominalInput(cur.min || 100000)}" style="font-size:20px;min-height:50px"></div></div>
+        <button class="btn btn-primary btn-block" id="mnSave">Simpan</button>`,
+    });
+    const sync = () => s.$("#mnMinWrap").classList.toggle("hidden", s.$("input[name=mn]:checked").value !== "min");
+    s.$$("input[name=mn]").forEach(r => r.onchange = sync); sync();
+    s.$("#mnMin").oninput = e => { e.target.value = formatNominalInput(e.target.value); };
+    s.$("#mnSave").onclick = e => busy(e.currentTarget, async () => {
+      const pref = { mode: s.$("input[name=mn]:checked").value, min: parseNominal(s.$("#mnMin").value) || 100000 };
+      try {
+        const r = await saveMemberNotif(pref);
+        s.close();
+        toast(pref.mode === "off" ? "Notifikasi anggota dimatikan" : r.pushOk ? "Notifikasi anggota aktif ✓" : "Aktif saat aplikasi terbuka. Untuk saat tertutup, izinkan notifikasi di HP ini.", r.pushOk || pref.mode === "off" ? "success" : "warn", 6000);
+      } catch (err) { toast(friendlyError(err), "error"); }
+    });
+  });
+}
+
 /* Peringatan budget 80/90/100% (sekali per level per periode) */
 function budgetAlert(p, pct, sisa) {
   if (!state.current.ready) return;
@@ -728,6 +768,7 @@ VIEWS.settings = {
         theme: () => { const order = ["auto", "light", "dark"]; const t = order[(order.indexOf(pref.get("theme", "auto")) + 1) % 3]; pref.set("theme", t); applyTheme(); this.update(el); },
         notif: () => toggleNotif().then(() => this.update(el)),
         templates: () => templatesSheet(),
+        "member-notif": () => memberNotifSheet().then(() => this.update(el)),
         catbud: () => catBudgetSheet(),
         lock: () => lockSettingsSheet().then(() => this.update(el)),
         daily: async () => {
@@ -784,6 +825,7 @@ VIEWS.settings = {
             ${item("theme", "🌓", "Tema", "", themeLabel)}
             ${item("notif", "🔔", "Notifikasi peringatan budget", "Peringatan budget & insight boros/hemat", notifOn ? "Aktif" : "Mati")}
             ${item("daily", "⏰", "Pengingat harian 20.00", "Ringkasan & tagihan, walau aplikasi tertutup", dailyReminderOn() ? "Aktif" : VAPID_KEY ? "Mati" : "Belum disetel")}
+            ${item("member-notif", "👥", "Notifikasi transaksi anggota", "Saat anggota lain mencatat transaksi", { all: "Semua", min: "≥ " + rupiahShort(D.memberNotifPref().min), off: "Mati" }[D.memberNotifPref().mode])}
             ${item("lock", "🔒", "Kunci aplikasi", "PIN / sidik jari di perangkat ini", lockConfigured() ? "Aktif" : "Mati")}
             ${item("export", "📤", "Export ke Excel", "Unduh transaksi sebagai .xlsx")}
             ${item("recalc", "🧮", "Hitung ulang saldo", "Perbaiki saldo dari seluruh transaksi")}

@@ -1,0 +1,35 @@
+name: Notifikasi transaksi anggota
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # tiap 15 menit (jadwal GitHub bisa molor/terlewat saat sibuk)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: activity-notify
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Jakarta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            js
+            scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pasang firebase-admin
+        run: npm install --no-save --no-package-lock --no-audit --no-fund firebase-admin@13
+      - name: Kirim notifikasi
+        run: node scripts/activity-notify.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

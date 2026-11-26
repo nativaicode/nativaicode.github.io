@@ -69,6 +69,7 @@ Saldo disimpan sebagai ringkasan (`balances`), jadi aplikasi cukup membaca trans
    Name: `FIREBASE_SERVICE_ACCOUNT` · Secret: tempel SELURUH isi file JSON tadi → *Add secret*. Lalu hapus file JSON dari HP/laptop.
 4. Pastikan file `.github/workflows/daily-reminder.yml` dan `scripts/daily-reminder.mjs` ada di repo.
 5. Uji: repo → tab **Actions** → *Pengingat harian* → **Run workflow**. Di aplikasi: Akun → Pengingat harian → Aktif.
+Notifikasi transaksi anggota (saat aplikasi tertutup) memakai secret yang sama lewat `.github/workflows/activity-notify.yml` (cek tiap ±15 menit). Atur per orang di Akun → Notifikasi transaksi anggota.
 Catatan: GitHub menonaktifkan jadwal otomatis bila repo tidak ada aktivitas 60 hari — cukup klik "Enable workflow" lagi.
 
 ## Install di HP

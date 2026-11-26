@@ -46,6 +46,8 @@ function emit() {
   queueMicrotask(() => { emitQueued = false; subs.forEach(fn => { try { fn(state); } catch (e) { console.error(e); } }); });
 }
 export const errorBus = new Set();
+/** Dipanggil dengan daftar transaksi baru yang dicatat anggota lain (realtime) */
+export const activityBus = new Set();
 function reportError(err, ctx) {
   console.error(ctx, err);
   errorBus.forEach(fn => fn(err, ctx));
@@ -74,7 +76,17 @@ function listenPeriod(slot, offset) {
     where("date", "<", Timestamp.fromDate(period.end)),
     orderBy("date", "desc"),
   );
+  let first = true;
   unsub[slot] = onSnapshot(q, { includeMetadataChanges: false }, snap => {
+    if (slot === "current" && !first && activityBus.size) {
+      const recent = Date.now() - 10 * 60e3;
+      const added = snap.docChanges()
+        .filter(c => c.type === "added" && !c.doc.metadata.hasPendingWrites)
+        .map(c => ({ ...mapTrx(c.doc), _created: c.doc.data().createdAt?.toMillis?.() || 0 }))
+        .filter(t => t.createdBy && t.createdBy !== state.user?.uid && t.type !== "adjust" && t._created > recent);
+      if (added.length) activityBus.forEach(fn => { try { fn(added); } catch (e) { console.error(e); } });
+    }
+    first = false;
     state[slot].list = snap.docs.map(mapTrx);
     state[slot].pending = snap.metadata.hasPendingWrites;
     state[slot].ready = true;
@@ -137,6 +149,7 @@ onAuthStateChanged(auth, user => {
   state.householdId = undefined; state.household = null;
   if (user) {
     unsub.user = onSnapshot(doc(db, "users", user.uid), snap => {
+      state.userDoc = snap.exists() ? snap.data() : {};
       const hid = snap.exists() ? (snap.data().householdId || null) : null;
       if (hid !== state.householdId) { state.householdId = hid; onHousehold(hid); }
       emit();
@@ -483,11 +496,17 @@ export const setTemplates = list => updateSettings("templates", list);
 
 /* ─── Token notifikasi harian (FCM) ─── */
 export async function saveReminderToken(token, on = true) {
-  const b = writeBatch(db);
-  const patch = { dailyReminder: on, updatedAt: serverTimestamp() };
-  if (token) patch.fcmTokens = on ? arrayUnion(token) : arrayRemove(token);
-  b.set(doc(db, "users", state.user.uid), patch, { merge: true });
-  return commit(b, "pengingat harian");
+  return saveUserPrefs({ dailyReminder: on }, token, on || memberNotifPref().mode !== "off");
 }
+/** Simpan preferensi notifikasi user (+ daftarkan/hapus token perangkat) */
+export async function saveUserPrefs(patch, token, keepToken = true) {
+  const b = writeBatch(db);
+  const p = { ...patch, updatedAt: serverTimestamp() };
+  if (token) p.fcmTokens = keepToken ? arrayUnion(token) : arrayRemove(token);
+  b.set(doc(db, "users", state.user.uid), p, { merge: true });
+  return commit(b, "preferensi notifikasi");
+}
+/** Preferensi notifikasi transaksi anggota: {mode: "all"|"min"|"off", min} */
+export const memberNotifPref = () => ({ mode: "all", min: 100000, ...(state.userDoc?.memberNotif || {}) });
 
 export { periodOf };

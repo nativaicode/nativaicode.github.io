@@ -52,3 +52,30 @@ export function buildDailyMessage({ household, trx = [], budgets = {}, bills = [
   const title = due.length ? `🧾 ${nick ? nick + ", ada" : "Ada"} tagihan jatuh tempo` : urgent ? `🚨 Cek budget${nick ? ", " + nick : ""}` : `📊 Ringkasan hari ini${nick ? ", " + nick : ""}`;
   return { title, body: lines.join("\n"), urgent };
 }
+
+/* ─── Notifikasi transaksi anggota lain ─── */
+const ICON = { expense: "➖", income: "➕", transfer: "🔄" };
+
+/** Apakah transaksi lolos preferensi penerima? pref = {mode: "all"|"min"|"off", min} */
+export function passesMemberPref(t, pref = {}) {
+  const mode = pref.mode || "all";
+  if (mode === "off" || t.type === "adjust") return false;
+  if (mode === "min") return t.type === "expense" && Number(t.amount) >= (Number(pref.min) || 0);
+  return ["expense", "income", "transfer"].includes(t.type);
+}
+
+/** Pesan gabungan: "Ibun mencatat 2 transaksi" + daftar singkat */
+export function buildActivityMessage(items, memberInfo = {}, walletName = () => "") {
+  const who = uid => memberInfo[uid]?.nick || memberInfo[uid]?.name?.split(" ")[0] || "Anggota";
+  const actors = [...new Set(items.map(t => who(t.createdBy)))];
+  const n = items.length;
+  const label = t => t.type === "transfer" ? `Pindah dana ${walletName(t.walletId)} → ${walletName(t.toWalletId)}`.trim() : (t.category || (t.type === "income" ? "Pemasukan" : "Pengeluaran"));
+  const title = n === 1
+    ? `${actors[0]} mencatat ${items[0].type === "income" ? "pemasukan" : items[0].type === "transfer" ? "pindah dana" : "pengeluaran"}`
+    : `${actors.join(" & ")} mencatat ${n} transaksi`;
+  const lines = items.slice(0, 4).map(t => `${ICON[t.type] || "•"} ${label(t)} ${rupiah(t.amount)}${actors.length > 1 ? " · " + who(t.createdBy) : ""}${t.note ? " — " + String(t.note).slice(0, 40) : ""}`);
+  if (n > 4) lines.push(`… dan ${n - 4} lainnya`);
+  const out = items.filter(t => t.type === "expense").reduce((a, t) => a + Number(t.amount || 0), 0);
+  if (n > 1 && out) lines.push(`Total pengeluaran ${rupiah(out)}`);
+  return { title, body: lines.join("\n") };
+}

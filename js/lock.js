@@ -6,6 +6,12 @@ const KEY = "kn_lock";
 const AUTO_LOCK_MS = 60 * 1000;
 let opts = { onForgot: () => {}, isLoggedIn: () => false };
 let unlocked = false, hiddenAt = 0;
+/* Sesi buka-kunci disimpan di sessionStorage (hilang saat aplikasi/tab ditutup),
+   supaya refresh tidak meminta PIN lagi selama aktivitas terakhir < 60 detik. */
+const SK = "kn_unlock_seen";
+const touch = () => { try { if (unlocked) sessionStorage.setItem(SK, String(Date.now())); } catch { /* abaikan */ } };
+const freshSession = () => { try { const t = +sessionStorage.getItem(SK); return t && Date.now() - t < AUTO_LOCK_MS; } catch { return false; } };
+const endSession = () => { try { sessionStorage.removeItem(SK); } catch { /* abaikan */ } };
 
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } };
 const save = v => { try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch { /* abaikan */ } };
@@ -70,7 +76,7 @@ function showLock() {
   let pin = "", busy = false;
   const len = cfg.len || 6;
   const dots = () => root.querySelectorAll("#lkDots i").forEach((d, i) => d.classList.toggle("on", i < pin.length));
-  const done = () => { unlocked = true; root.remove(); document.body.style.overflow = ""; cfg.fails = 0; save({ ...load(), fails: 0, until: 0 }); };
+  const done = () => { unlocked = true; touch(); root.remove(); document.body.style.overflow = ""; cfg.fails = 0; save({ ...load(), fails: 0, until: 0 }); };
   const msg = t => { root.querySelector("#lkMsg").textContent = t; };
   const tryBio = async () => {
     if (!cfg.bio) return;
@@ -109,13 +115,16 @@ function showLock() {
 
 export function setupLock(o) {
   opts = { ...opts, ...o };
+  if (freshSession()) { unlocked = true; touch(); }
+  setInterval(() => { if (!document.hidden) touch(); }, 10000);
+  addEventListener("pagehide", touch);
   // Kunci saat dibuka (setelah login terdeteksi) & setelah ditinggal > 60 detik
   const tryLock = () => { if (lockConfigured() && opts.isLoggedIn() && !unlocked) showLock(); };
   const start = Date.now();
   const iv = setInterval(() => { if (opts.isLoggedIn() || Date.now() - start > 15000) { clearInterval(iv); tryLock(); } }, 200);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) hiddenAt = Date.now();
-    else if (hiddenAt && Date.now() - hiddenAt > AUTO_LOCK_MS) { unlocked = false; tryLock(); }
+    if (document.hidden) { hiddenAt = Date.now(); touch(); }
+    else if (hiddenAt && Date.now() - hiddenAt > AUTO_LOCK_MS) { unlocked = false; endSession(); tryLock(); }
   });
 }
 
@@ -168,7 +177,7 @@ export async function lockSettingsSheet() {
       if (p1 !== p2) return toast("PIN tidak sama, ulangi.", "error");
       const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
       save({ hash: await hashPin(p1, salt), salt, len: p1.length, bio: cfg?.bio || null });
-      unlocked = true;
+      unlocked = true; touch();
       s.close(); toast("Kunci aplikasi aktif 🔒", "success");
     };
     s.$("#lsBio")?.addEventListener("click", async () => {
