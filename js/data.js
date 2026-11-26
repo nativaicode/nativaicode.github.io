@@ -7,6 +7,7 @@ import {
   serverTimestamp, increment, arrayUnion, arrayRemove, deleteField, Timestamp,
 } from "../vendor/firebase.js";
 import { firebaseConfig } from "./config.js";
+import { periodSummary } from "./insights.js";
 import { periodOf, diffEffects, balanceEffects, inviteCode, uid as makeId, DEFAULT_CATEGORIES, clampPayday, toDate } from "./util.js";
 
 const app = initializeApp(firebaseConfig);
@@ -32,6 +33,7 @@ export const state = {
   budgets: {},              // periodKey -> amount
   current: { period: null, list: [], ready: false },   // periode berjalan
   view: { offset: 0, period: null, list: [], ready: false }, // periode yang dipilih (riwayat/statistik)
+  prev: { key: "", list: [] }, // ringkasan 3 periode sebelumnya (pembanding insight)
 };
 const subs = new Set();
 export const subscribe = fn => (subs.add(fn), () => subs.delete(fn));
@@ -240,6 +242,13 @@ export async function updateHousehold(patch) {
 export const updateSettings = (key, value) => updateHousehold({ [`settings.${key}`]: value });
 
 /* ─── Transaksi ────────────────────────────────────────────── */
+/** Transaksi bertanggal sebelum periode berjalan → ringkasan pembanding perlu dihitung ulang */
+function touchPast(...dates) {
+  const start = state.current.period?.start;
+  if (!start || !dates.some(d => d && toDate(d) < start)) return;
+  try { Object.keys(localStorage).filter(k => k.startsWith("kn_prev_" + state.householdId)).forEach(k => localStorage.removeItem(k)); } catch { /* abaikan */ }
+  state.prev = { key: "", list: [] };
+}
 function applyBalances(b, fx) {
   const patch = {};
   for (const [w, v] of Object.entries(fx)) patch[`balances.${w}`] = increment(v);
@@ -270,6 +279,7 @@ export async function addTransaction(t) {
   const b = writeBatch(db);
   b.set(ref, { ...data, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   applyBalances(b, balanceEffects(data));
+  touchPast(t.date);
   return commit(b, "tambah transaksi");
 }
 
@@ -278,6 +288,7 @@ export async function updateTransaction(oldT, t) {
   const b = writeBatch(db);
   b.update(doc(db, "households", state.householdId, "transactions", oldT.id), { ...data, updatedBy: state.user.uid, updatedAt: serverTimestamp() });
   applyBalances(b, diffEffects(oldT, data));
+  touchPast(oldT.date, t.date);
   return commit(b, "ubah transaksi");
 }
 
@@ -285,6 +296,7 @@ export async function deleteTransaction(oldT) {
   const b = writeBatch(db);
   b.delete(doc(db, "households", state.householdId, "transactions", oldT.id));
   applyBalances(b, diffEffects(oldT, null));
+  touchPast(oldT.date);
   return commit(b, "hapus transaksi");
 }
 
@@ -330,6 +342,30 @@ export function budgetFor(periodKey) {
   const keys = Object.keys(state.budgets).filter(k => k < periodKey).sort();
   const last = keys[keys.length - 1];
   return last ? { amount: state.budgets[last], inherited: true, from: last } : { amount: 0, inherited: false };
+}
+
+/* ─── Ringkasan periode sebelumnya (untuk insight), di-cache 6 jam per perangkat ─── */
+let prevLoading = "";
+export async function loadPrevSummaries() {
+  if (!state.householdId || !state.current.period) return;
+  const cur = state.current.period;
+  const key = `${state.householdId}|${cur.key}`;
+  if (state.prev.key === key || prevLoading === key) return;
+  const cacheKey = "kn_prev_" + key;
+  try {
+    const c = JSON.parse(localStorage.getItem(cacheKey) || "null");
+    if (c && Date.now() - c.at < 6 * 3600e3) { state.prev = { key, list: c.list }; emit(); return; }
+  } catch { /* abaikan */ }
+  prevLoading = key;
+  try {
+    const periods = [-3, -2, -1].map(o => periodOf(new Date(), payday(), o));
+    const all = await fetchRange(periods[0].start, cur.start);
+    const list = periods.map(p => periodSummary(all.filter(t => t.date >= p.start && t.date < p.end)));
+    state.prev = { key, list };
+    try { localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), list })); } catch { /* penuh */ }
+    emit();
+  } catch (err) { console.warn("prev summaries", err); }
+  finally { prevLoading = ""; }
 }
 
 export { periodOf };
