@@ -11,4 +11,4 @@ export const firebaseConfig = {
 };
 
 export const APP_NAME = "Keuangan Nativan";
-export const APP_VERSION = "2.1.0";
+export const APP_VERSION = "2.3.0";

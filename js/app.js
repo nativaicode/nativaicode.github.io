@@ -7,6 +7,7 @@ import {
 } from "./util.js";
 import { icon, GOOGLE_SVG, toast, openSheet, confirmDialog, busy, friendlyError } from "./ui.js";
 import { APP_NAME, APP_VERSION } from "./config.js";
+import { computeInsights } from "./insights.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const appEl = document.getElementById("app");
@@ -31,7 +32,9 @@ const S = () => state.household?.settings || {};
 const allWallets = () => S().wallets || [];
 const activeWallets = () => allWallets().filter(w => !w.archived);
 const walletById = id => allWallets().find(w => w.id === id);
-const walletName = id => walletById(id)?.name || "(dompet dihapus)";
+const walletLabel = w => w ? (w.owner ? `${w.name} (${w.owner})` : w.name) : "(dompet dihapus)";
+const walletName = id => walletLabel(walletById(id));
+const walletOwner = id => walletById(id)?.owner || "";
 const balance = id => Number(state.household?.balances?.[id]) || 0;
 const owners = () => S().owners?.length ? S().owners : ["Saya"];
 const cats = type => (S().categories?.[type]?.length ? S().categories[type] : DEFAULT_CATEGORIES[type]);
@@ -58,14 +61,17 @@ function trxAmount(t) {
 function trxRow(t) {
   const sub = [];
   if (t.type === "income" || t.type === "expense") sub.push(walletName(t.walletId));
-  if (t.owner && t.type !== "adjust") sub.push(t.type === "transfer" && t.toOwner && t.toOwner !== t.owner ? `${t.owner} → ${t.toOwner}` : t.owner);
+  if (t.type === "transfer") {
+    const autoFrom = t.owner === walletOwner(t.walletId), autoTo = (t.toOwner || t.owner) === walletOwner(t.toWalletId);
+    if (!(autoFrom && autoTo) && t.owner) sub.push(t.toOwner && t.toOwner !== t.owner ? `${t.owner} → ${t.toOwner}` : t.owner);
+  } else if (t.owner && t.type !== "adjust" && t.owner !== walletOwner(t.walletId)) sub.push(t.owner);
   if (t.note && t.type !== "adjust") sub.push(t.note);
   if (t.type === "adjust") sub.push(walletName(t.walletId));
   return `<button class="trx-item" data-trx="${esc(t.id)}">
     <div class="trx-ico ${t.type}">${trxIcon(t)}</div>
     <div class="trx-main">
       <div class="trx-title">${esc(trxTitle(t))}${t.expenseType === "Tetap" ? '<span class="tag tetap">Tetap</span>' : ""}</div>
-      <div class="trx-sub">${fmtTime(t.date)} · ${esc(sub.join(" · "))}</div>
+      <div class="trx-sub">${fmtTime(t.date)}${sub.length ? " · " + esc(sub.join(" · ")) : ""}</div>
     </div>
     ${trxAmount(t)}
   </button>`;
@@ -285,6 +291,10 @@ VIEWS.home = {
           </section>
         </div>
         <div class="grid">
+          <section class="card o2b">
+            <div class="card-head"><h2>💡 Insight keuangan</h2><a class="link-btn" href="#/stats" id="hInsMore"></a></div>
+            <div id="hIns"></div>
+          </section>
           <section class="card o2">
             <div class="card-head"><h2>Dompet & Rekening</h2><button class="link-btn" id="hAddWallet">+ Tambah</button></div>
             <div class="wallet-strip" id="hWallets"></div>
@@ -351,9 +361,15 @@ VIEWS.home = {
     $("#hWallets", el).innerHTML = ws.length ? ws.map(w => `
       <button class="wallet-chip" data-wallet="${esc(w.id)}">
         <div class="w-ico">${walletIcon(w.type)}</div>
-        <div class="w-name">${esc(w.name)}</div>
+        <div class="w-name">${esc(w.name)}${w.owner ? ` <span class="w-owner">${esc(w.owner)}</span>` : ""}</div>
         <div class="w-bal ${balance(w.id) < 0 ? "neg" : ""}">${money(balance(w.id))}</div>
       </button>`).join("") : `<div class="muted">Belum ada dompet.</div>`;
+
+    // Insight
+    const ins = currentInsights();
+    $("#hIns", el).innerHTML = cur.ready ? insightList(ins.slice(0, 3)) : `<div class="skeleton"></div>`;
+    $("#hInsMore", el).textContent = ins.length > 3 ? `Lihat semua (${ins.length})` : "";
+    notifyInsights(ins);
 
     // Kategori
     $("#hCats", el).innerHTML = catBars(s.byCategory, 5);
@@ -370,6 +386,44 @@ function catBars(byCat, limit = 99, budgets = {}) {
     <div class="bar-row"><div class="ico">${catIcon(c)}</div>
       <div><div class="name"><span>${esc(c)}</span><span class="faint">${Math.round(v / total * 100)}%</span></div><div class="track"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>
       <div class="val">${money(v)}</div></div>`).join("")}</div>`;
+}
+
+/* ─── Insight keuangan ─── */
+function currentInsights() {
+  const cur = state.current;
+  if (!cur.ready || !cur.period) return [];
+  D.loadPrevSummaries();
+  return computeInsights({
+    period: cur.period, list: cur.list, budget: budgetFor(cur.period.key).amount,
+    prev: state.prev.list, wallets: allWallets(), balances: state.household?.balances || {}, now: new Date(),
+  });
+}
+const LEVEL_CLASS = { bad: "bad", warn: "warn", info: "info", good: "ok" };
+function insightList(items) {
+  if (!items.length) return `<div class="empty" style="padding:16px"><div class="e-ico">🧘</div>Belum ada catatan khusus. Keuangan periode ini terlihat wajar.</div>`;
+  return `<div class="insights">${items.map(x => `
+    <div class="insight lv-${x.level}">
+      <div class="in-ico">${x.icon}</div>
+      <div><div class="in-title">${esc(x.title)}</div><div class="in-text">${esc(x.text)}</div></div>
+    </div>`).join("")}</div>`;
+}
+/** Notifikasi insight: hanya yang baru & penting, maks. 1 per 12 jam (kecuali level "bad") */
+function notifyInsights(items) {
+  if (!state.prev.key) return; // tunggu data pembanding agar tidak berubah-ubah
+  const seen = new Set(pref.get("seenIns", []));
+  const fresh = items.filter(x => (x.level === "bad" || x.level === "warn") && !seen.has(x.id));
+  if (!fresh.length) return;
+  const top = fresh[0];
+  const last = pref.get("lastInsNotif", 0);
+  if (top.level !== "bad" && Date.now() - last < 12 * 3600e3) return;
+  fresh.forEach(x => seen.add(x.id));
+  pref.set("seenIns", [...seen].slice(-200));
+  pref.set("lastInsNotif", Date.now());
+  if (pref.get("notif", false) && "Notification" in window && Notification.permission === "granted") {
+    navigator.serviceWorker?.ready.then(r => r.showNotification(`${top.icon} ${top.title}`, { body: top.text, icon: "assets/icons/icon-192.png", tag: "insight" })).catch(() => {});
+  } else {
+    toast(`${top.icon} ${top.title}`, top.level === "bad" ? "error" : "warn", 6000);
+  }
 }
 
 /* Peringatan budget 80/90/100% (sekali per level per periode) */
@@ -417,7 +471,7 @@ VIEWS.history = {
     $("#hsOffline", el).innerHTML = offlineBar();
     updatePeriodNav(el);
     const ws = allWallets();
-    $("#hsWallet", el).innerHTML = `<option value="">Semua dompet</option>` + ws.map(w => `<option value="${esc(w.id)}" ${hf.wallet === w.id ? "selected" : ""}>${esc(w.name)}${w.archived ? " (arsip)" : ""}</option>`).join("");
+    $("#hsWallet", el).innerHTML = `<option value="">Semua dompet</option>` + ws.map(w => `<option value="${esc(w.id)}" ${hf.wallet === w.id ? "selected" : ""}>${esc(walletLabel(w))}${w.archived ? " (arsip)" : ""}</option>`).join("");
     const cs = [...new Set([...cats("expense"), ...cats("income"), ...state.view.list.map(t => t.category).filter(Boolean)])];
     $("#hsCat", el).innerHTML = `<option value="">Semua kategori</option>` + cs.map(c => `<option ${hf.cat === c ? "selected" : ""}>${esc(c)}</option>`).join("");
     this.list(el);
@@ -453,6 +507,7 @@ VIEWS.stats = {
       <div class="topbar"><div><h1>Budget & Statistik</h1><div class="sub">Pantau batas pengeluaran per periode gajian</div></div></div>
       ${periodNav("pn")}
       <div class="grid grid-2" style="margin-top:12px">
+        <section class="card span-2" id="stIns"><div class="card-head"><h2>💡 Analisis & saran</h2></div><div id="stInsBody"></div></section>
         <section class="card" id="stBudget"></section>
         <section class="card" id="stSplit"></section>
         <section class="card"><div class="card-head"><h2>Pengeluaran per kategori</h2></div><div id="stCats"></div></section>
@@ -469,6 +524,8 @@ VIEWS.stats = {
     updatePeriodNav(el);
     const p = state.view.period;
     if (!p) return;
+    $("#stIns", el).classList.toggle("hidden", (state.view.offset || 0) !== 0);
+    if ((state.view.offset || 0) === 0) $("#stInsBody", el).innerHTML = insightList(currentInsights());
     const s = summarize(state.view.list);
     const bud = budgetFor(p.key);
     if (bud.amount) {
@@ -580,7 +637,7 @@ VIEWS.settings = {
             ${h.members.map(m => item("member", m === h.ownerId ? "👑" : "👤", memberName(m) + (m === u.uid ? " (kamu)" : ""), esc(h.memberInfo?.[m]?.email || ""), m === h.ownerId ? "Pemilik" : "Anggota", m)).join("")}
           </div></div>
           <div class="set-group"><h3>Dompet & rekening</h3><div class="set-list">
-            ${activeWallets().map(w => item("wallet", walletIcon(w.type), w.name, esc(w.type), money(balance(w.id)), w.id)).join("")}
+            ${activeWallets().map(w => item("wallet", walletIcon(w.type), w.name, esc(w.type) + " · " + esc(w.owner || "Bersama"), money(balance(w.id)), w.id)).join("")}
             ${item("addWallet", "➕", "Tambah dompet / rekening")}
             ${archivedCount ? item("archived", "🗄️", "Dompet diarsipkan", "", String(archivedCount)) : ""}
           </div></div>
@@ -594,7 +651,7 @@ VIEWS.settings = {
           </div></div>
           <div class="set-group"><h3>Aplikasi</h3><div class="set-list">
             ${item("theme", "🌓", "Tema", "", themeLabel)}
-            ${item("notif", "🔔", "Notifikasi peringatan budget", "Muncul saat budget 80%, 90%, 100%", notifOn ? "Aktif" : "Mati")}
+            ${item("notif", "🔔", "Notifikasi peringatan budget", "Peringatan budget & insight boros/hemat", notifOn ? "Aktif" : "Mati")}
             ${item("export", "📤", "Export ke Excel", "Unduh transaksi sebagai .xlsx")}
             ${item("recalc", "🧮", "Hitung ulang saldo", "Perbaiki saldo dari seluruh transaksi")}
           </div></div>
@@ -619,7 +676,7 @@ function trxForm(existing = null, presetType = "expense") {
   const lastOwner = pref.get("lastOwner", owners()[0]);
   const f = existing ? { ...existing } : { type: presetType, walletId: ws.some(w => w.id === lastWallet) ? lastWallet : ws[0].id, toWalletId: "", owner: lastOwner, toOwner: lastOwner, expenseType: "Rutin", date: new Date(), amount: 0, note: "", category: "" };
   const wsForSelect = existing ? allWallets().filter(w => !w.archived || w.id === existing.walletId || w.id === existing.toWalletId) : ws;
-  const wOpts = sel => wsForSelect.map(w => `<option value="${esc(w.id)}" ${w.id === sel ? "selected" : ""}>${walletIcon(w.type)} ${esc(w.name)}</option>`).join("");
+  const wOpts = sel => wsForSelect.map(w => `<option value="${esc(w.id)}" ${w.id === sel ? "selected" : ""}>${walletIcon(w.type)} ${esc(w.name)}${w.owner ? ` (${esc(w.owner)})` : ""}</option>`).join("");
   const oOpts = sel => [...new Set([...owners(), sel].filter(Boolean))].map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
 
   const s = openSheet({
@@ -634,6 +691,7 @@ function trxForm(existing = null, presetType = "expense") {
         <div class="field"><label for="fDate">Tanggal & jam</label><input class="input" type="datetime-local" id="fDate" value="${toLocalInput(f.date)}"></div>
         <div class="field" id="fOwnerWrap"><label for="fOwner">Milik</label><select class="input select" id="fOwner">${oOpts(f.owner)}</select></div>
       </div>
+      <div class="hint hidden" id="fOwnerAuto" style="margin:-6px 0 14px"></div>
       <div class="field"><label for="fNote">Catatan (opsional)</label><input class="input" id="fNote" maxlength="300" placeholder="Contoh: belanja mingguan" value="${esc(f.note || "")}"></div>
       <button class="btn btn-primary btn-block" id="fSave">${existing ? "Simpan perubahan" : "Simpan"}</button>`,
     onMount(api) {
@@ -666,6 +724,28 @@ function trxForm(existing = null, presetType = "expense") {
         }
         api.$("#fW").onchange = e => { f.walletId = e.target.value; };
         api.$("#fOwnerWrap label").textContent = f.type === "transfer" ? "Dari kepemilikan" : "Milik";
+        api.$("#fW2")?.addEventListener("change", syncOwners);
+        api.$("#fW").addEventListener("change", syncOwners);
+        syncOwners();
+      };
+      /* Rekening yang punya pemilik → "Milik" terisi otomatis & disembunyikan */
+      const syncOwners = () => {
+        const o1 = walletOwner(f.walletId);
+        const wrap = api.$("#fOwnerWrap");
+        if (o1) { f.owner = o1; api.$("#fOwner").innerHTML = oOpts(o1); }
+        wrap.classList.toggle("hidden", !!o1);
+        if (f.type === "transfer") {
+          const o2 = walletOwner(f.toWalletId);
+          const w2 = api.$("#fOwner2")?.closest(".field");
+          if (o2) { f.toOwner = o2; api.$("#fOwner2").innerHTML = oOpts(o2); }
+          w2?.classList.toggle("hidden", !!o2);
+        }
+        const note = api.$("#fOwnerAuto");
+        const parts = [];
+        if (o1) parts.push(f.type === "transfer" ? `dari ${o1}` : o1);
+        if (f.type === "transfer" && walletOwner(f.toWalletId)) parts.push(`ke ${walletOwner(f.toWalletId)}`);
+        note.textContent = parts.length ? `👤 Kepemilikan otomatis mengikuti rekening: ${parts.join(" ")}` : "";
+        note.classList.toggle("hidden", !parts.length);
       };
       drawDyn();
       api.$("#fType").onclick = e => { const b = e.target.closest("[data-t]"); if (!b) return; f.type = b.dataset.t; drawDyn(); };
@@ -673,7 +753,8 @@ function trxForm(existing = null, presetType = "expense") {
       amt.oninput = () => { const pos = amt.value.length - amt.selectionStart; amt.value = formatNominalInput(amt.value); const p = Math.max(0, amt.value.length - pos); amt.setSelectionRange(p, p); };
       api.$("#fSave").onclick = e => busy(e.currentTarget, async () => {
         f.amount = parseNominal(amt.value);
-        f.owner = api.$("#fOwner").value;
+        if (!api.$("#fOwnerWrap").classList.contains("hidden")) f.owner = api.$("#fOwner").value;
+        if (f.type === "transfer" && api.$("#fOwner2") && !api.$("#fOwner2").closest(".field").classList.contains("hidden")) f.toOwner = api.$("#fOwner2").value;
         f.note = api.$("#fNote").value;
         f.date = new Date(api.$("#fDate").value || Date.now());
         if (!f.amount) return toast("Isi nominal terlebih dahulu.", "warn");
@@ -732,24 +813,29 @@ function walletSheet(w = null) {
     title: w ? "Ubah dompet" : "Tambah dompet / rekening",
     body: `
       <div class="field"><span class="field-label">Jenis</span><div class="chips" id="wsType">${types.map(t => `<button type="button" class="chip ${(w?.type || "Bank") === t ? "active" : ""}" data-t="${t}">${WALLET_TYPES[t]} ${t}</button>`).join("")}</div></div>
-      <div class="field"><label for="wsName">Nama</label><input class="input" id="wsName" maxlength="30" placeholder="Contoh: BTN Hanif, GoPay Istri" value="${esc(w?.name || "")}" autofocus></div>
+      <div class="field"><label for="wsName">Nama</label><input class="input" id="wsName" maxlength="30" placeholder="Contoh: BTN, GoPay, Mandiri" value="${esc(w?.name || "")}" autofocus></div>
+      <div class="field"><span class="field-label">Pemilik rekening</span><div class="chips" id="wsOwner" style="flex-wrap:wrap">${["", ...owners()].map(o => `<button type="button" class="chip ${(w?.owner || "") === o ? "active" : ""}" data-o="${esc(o)}">${o ? "👤 " + esc(o) : "👥 Bersama"}</button>`).join("")}</div>
+        <span class="hint">Transaksi dari rekening ini otomatis tercatat milik pemiliknya. Pilih "Bersama" untuk dompet/rekening keluarga.</span></div>
       ${w ? "" : `<div class="field"><label for="wsBal">Saldo saat ini</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="wsBal" inputmode="numeric" placeholder="0" style="font-size:22px;min-height:54px"></div><span class="hint">Dicatat sebagai penyesuaian saldo (tidak dihitung sebagai pemasukan).</span></div>`}
       <button class="btn btn-primary btn-block" id="wsSave">Simpan</button>`,
   });
   let type = w?.type || "Bank";
+  let owner = w?.owner || "";
+  s.$("#wsOwner").onclick = e => { const b = e.target.closest("[data-o]"); if (!b) return; owner = b.dataset.o; s.$$("#wsOwner .chip").forEach(c => c.classList.toggle("active", c === b)); };
   s.$("#wsType").onclick = e => { const b = e.target.closest("[data-t]"); if (!b) return; type = b.dataset.t; s.$$("#wsType .chip").forEach(c => c.classList.toggle("active", c === b)); };
   s.$("#wsBal")?.addEventListener("input", e => { e.target.value = formatNominalInput(e.target.value); });
   s.$("#wsSave").onclick = e => busy(e.currentTarget, async () => {
     const name = s.$("#wsName").value.trim();
     if (!name) return toast("Isi nama dompet.", "warn");
+    if (allWallets().some(x => x.id !== w?.id && !x.archived && x.name.toLowerCase() === name.toLowerCase() && (x.owner || "") === owner)) return toast(`${name}${owner ? " milik " + owner : ""} sudah ada.`, "warn");
     const list = allWallets().map(x => ({ ...x }));
     try {
       if (w) {
-        const i = list.findIndex(x => x.id === w.id); list[i] = { ...list[i], name, type };
+        const i = list.findIndex(x => x.id === w.id); list[i] = { ...list[i], name, type, owner };
         await D.updateSettings("wallets", list);
       } else {
         const id = makeId("w_");
-        list.push({ id, type, name, archived: false });
+        list.push({ id, type, name, owner, archived: false });
         await D.updateSettings("wallets", list);
         const bal = parseNominal(s.$("#wsBal").value);
         if (bal) await D.adjustBalance(id, bal);
@@ -764,7 +850,7 @@ function walletDetail(id) {
   if (!w) return;
   const recent = [...state.current.list].filter(t => t.walletId === id || t.toWalletId === id).slice(0, 6);
   const s = openSheet({
-    title: `${walletIcon(w.type)} ${w.name}`,
+    title: `${walletIcon(w.type)} ${walletLabel(w)}`,
     body: `
       <div class="detail-amount"><div class="muted">Saldo saat ini</div><div class="big">${money(balance(id))}</div></div>
       <div class="btn-row" style="margin-bottom:16px">
