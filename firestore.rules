@@ -1,0 +1,90 @@
+rules_version = '2';
+// Keuangan Nativan — Firestore Security Rules
+// Salin seluruh isi file ini ke Firebase Console → Firestore → Rules → Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function hh(hid) { return get(/databases/$(database)/documents/households/$(hid)).data; }
+    function isMember(hid) { return signedIn() && me() in hh(hid).members; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // ── Profil pengguna: hanya pemiliknya ──
+    match /users/{userId} {
+      allow read, write: if signedIn() && me() == userId;
+    }
+
+    // ── Kode undangan: bisa dibaca per-kode (tidak bisa di-list) ──
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.createdBy == me()
+        && me() in getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.members
+        && getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.inviteCode == code;
+      allow delete: if isMember(resource.data.householdId);
+      allow update: if false;
+    }
+
+    // ── Rumah tangga ──
+    match /households/{hid} {
+      allow read: if signedIn() && me() in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == me()
+        && request.resource.data.members == [me()]
+        && request.resource.data.inviteCode is string
+        && request.resource.data.inviteCode.size() == 8;
+
+      allow update: if signedIn() && request.resource.data.ownerId == resource.data.ownerId && (
+        // Anggota: boleh ubah apa saja kecuali daftar anggota…
+        (me() in resource.data.members && !('members' in changed()))
+        // …pemilik boleh mengelola anggota (tetap harus jadi anggota)
+        || (me() == resource.data.ownerId && me() in request.resource.data.members)
+        // …anggota boleh keluar sendiri
+        || (me() in resource.data.members
+            && request.resource.data.members.toSet() == resource.data.members.toSet().difference([me()].toSet())
+            && changed().hasOnly(['members', 'memberInfo']))
+        // Bukan anggota: boleh bergabung HANYA dengan kode undangan yang benar
+        || (!(me() in resource.data.members)
+            && request.resource.data.joinedWith == resource.data.inviteCode
+            && request.resource.data.members.toSet() == resource.data.members.toSet().union([me()].toSet())
+            && changed().hasOnly(['members', 'memberInfo', 'joinedWith']))
+      );
+
+      allow delete: if signedIn() && me() == resource.data.ownerId;
+
+      // ── Transaksi ──
+      match /transactions/{tid} {
+        function validTrx(d) {
+          return d.type in ['income', 'expense', 'transfer', 'adjust']
+            && d.amount is int
+            && (d.type == 'adjust' ? d.amount != 0 : d.amount > 0)
+            && d.amount < 100000000000000 && d.amount > -100000000000000
+            && d.date is timestamp
+            && d.walletId is string && d.walletId.size() > 0
+            && (d.type != 'transfer' || (d.toWalletId is string && d.toWalletId != d.walletId))
+            && (!('note' in d) || (d.note is string && d.note.size() <= 300));
+        }
+        allow read: if isMember(hid);
+        allow create: if isMember(hid) && validTrx(request.resource.data) && request.resource.data.createdBy == me();
+        allow update: if isMember(hid) && validTrx(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isMember(hid);
+      }
+
+      // ── Budget per periode ──
+      match /budgets/{periodKey} {
+        allow read: if isMember(hid);
+        allow write: if isMember(hid)
+          && (request.resource == null || (request.resource.data.amount is int && request.resource.data.amount > 0));
+      }
+    }
+
+    // Selain di atas: tolak semua
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

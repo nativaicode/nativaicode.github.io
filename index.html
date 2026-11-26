@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://apis.google.com https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://apis.google.com http://127.0.0.1:8080 http://127.0.0.1:9099 ws://127.0.0.1:8080; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com http://127.0.0.1:9099; img-src 'self' data: https://*.googleusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>Keuangan Nativan</title>
+  <meta name="description" content="Catat keuangan keluarga: pemasukan, pengeluaran, budget, dan saldo dompet." />
+  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1412" media="(prefers-color-scheme: dark)" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Keuangan" />
+  <link rel="icon" href="assets/icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-512.png" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/app.css" />
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="boot">
+      <div class="boot-logo">N</div>
+      <div class="boot-text">Memuat…</div>
+    </div>
+  </div>
+  <div id="sheetRoot"></div>
+  <div id="toastRoot" aria-live="polite"></div>
+  <noscript>Aplikasi ini membutuhkan JavaScript.</noscript>
+</body>
+</html>

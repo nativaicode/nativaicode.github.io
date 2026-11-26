@@ -1,0 +1,23 @@
+{
+  "id": "./",
+  "name": "Keuangan Nativan",
+  "short_name": "Keuangan",
+  "description": "Catatan keuangan keluarga: pemasukan, pengeluaran, budget, dan saldo dompet.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f5",
+  "theme_color": "#0f766e",
+  "orientation": "any",
+  "lang": "id",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Riwayat", "url": "./index.html#/history", "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Budget", "url": "./index.html#/stats", "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
