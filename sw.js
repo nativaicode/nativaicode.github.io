@@ -1,7 +1,7 @@
 /* Keuangan Nativan — Service Worker
    Aset aplikasi di-cache agar bisa dibuka offline. Data (Firestore) punya cache offline sendiri.
    Naikkan VERSION setiap kali ada perubahan file supaya pengguna mendapat versi baru. */
-const VERSION = "kn-v2.3.0";
+const VERSION = "kn-v2.4.0";
 const SHELL = [
   "./", "./index.html", "./privacy.html", "./manifest.json",
   "./css/app.css",
