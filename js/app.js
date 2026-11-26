@@ -6,7 +6,7 @@ import {
   dayKey, dayLabel, toLocalInput, catIcon, walletIcon, WALLET_TYPES, TYPE_LABEL, uid as makeId, DEFAULT_CATEGORIES,
 } from "./util.js";
 import { icon, GOOGLE_SVG, toast, openSheet, confirmDialog, busy, friendlyError } from "./ui.js";
-import { APP_NAME, APP_VERSION } from "./config.js";
+import { APP_NAME, APP_VERSION, VAPID_KEY } from "./config.js";
 import { computeInsights } from "./insights.js";
 import { installPlan, sortedBills, billRow, openBillPay } from "./plan.js";
 import { setupLock, lockSettingsSheet, lockConfigured } from "./lock.js";
@@ -783,7 +783,7 @@ VIEWS.settings = {
           <div class="set-group"><h3>Aplikasi</h3><div class="set-list">
             ${item("theme", "🌓", "Tema", "", themeLabel)}
             ${item("notif", "🔔", "Notifikasi peringatan budget", "Peringatan budget & insight boros/hemat", notifOn ? "Aktif" : "Mati")}
-            ${item("daily", "⏰", "Pengingat harian 20.00", "Ringkasan & tagihan, walau aplikasi tertutup", dailyReminderOn() ? "Aktif" : "Mati")}
+            ${item("daily", "⏰", "Pengingat harian 20.00", "Ringkasan & tagihan, walau aplikasi tertutup", dailyReminderOn() ? "Aktif" : VAPID_KEY ? "Mati" : "Belum disetel")}
             ${item("lock", "🔒", "Kunci aplikasi", "PIN / sidik jari di perangkat ini", lockConfigured() ? "Aktif" : "Mati")}
             ${item("export", "📤", "Export ke Excel", "Unduh transaksi sebagai .xlsx")}
             ${item("recalc", "🧮", "Hitung ulang saldo", "Perbaiki saldo dari seluruh transaksi")}

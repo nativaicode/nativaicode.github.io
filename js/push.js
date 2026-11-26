@@ -12,7 +12,7 @@ export const dailyReminderOn = () => !!get()?.on;
 export const pushSupported = async () => !!VAPID_KEY && "serviceWorker" in navigator && "Notification" in window && await messagingSupported().catch(() => false);
 
 export async function enableDailyReminder() {
-  if (!VAPID_KEY) throw new Error("Pengingat harian belum dikonfigurasi (VAPID key belum diisi di config.js).");
+  if (!VAPID_KEY) throw new Error("Pengingat harian belum disetel. Pemilik akun perlu membuat Web Push key di Firebase (Project settings → Cloud Messaging) — lihat README.");
   if (!(await messagingSupported().catch(() => false)) || !("Notification" in window))
     throw new Error("Perangkat ini belum mendukung notifikasi push. Di iPhone: pasang aplikasi ke Layar Utama dulu (iOS 16.4+) lalu buka dari ikonnya.");
   const perm = await Notification.requestPermission();

@@ -41,6 +41,13 @@ export function installPlan(VIEWS, ctx) {
     update(el) {
       const tab = C.pref.get("planTab", "bills");
       const body = el.querySelector("#plBody");
+      if (C.state.planRulesMissing) {
+        body.innerHTML = `<section class="card"><div class="insight lv-warn"><div class="in-ico">🔐</div><div>
+          <div class="in-title">Aturan database perlu diperbarui</div>
+          <div class="in-text">Fitur Rencana butuh aturan keamanan Firestore versi baru. Pemilik akun: buka <b>Firebase Console → Firestore Database → Rules</b>, ganti isinya dengan file <b>firestore.rules</b> terbaru dari repo, lalu klik <b>Publish</b>. Setelah itu tutup & buka lagi aplikasi.</div>
+        </div></div></section>`;
+        return;
+      }
       body.innerHTML = tab === "goals" ? goalsHtml() : tab === "debts" ? debtsHtml() : billsHtml();
     },
   };

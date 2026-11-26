@@ -32,6 +32,7 @@ export const state = {
   household: null,
   budgets: {},              // periodKey -> amount
   bills: [], goals: [], debts: [], // Rencana
+  planRulesMissing: false,
   current: { period: null, list: [], ready: false },   // periode berjalan
   view: { offset: 0, period: null, list: [], ready: false }, // periode yang dipilih (riwayat/statistik)
   prev: { key: "", list: [] }, // ringkasan 3 periode sebelumnya (pembanding insight)
@@ -93,7 +94,7 @@ let lastPayday = null;
 function onHousehold(hid) {
   lastPayday = null;
   stop("hh"); stop("cur"); stop("view"); stop("budgets"); stop("bills"); stop("goals"); stop("debts");
-  state.household = null; state.budgets = {}; state.bills = []; state.goals = []; state.debts = [];
+  state.household = null; state.budgets = {}; state.bills = []; state.goals = []; state.debts = []; state.planRulesMissing = false;
   if (!hid) { emit(); return; }
   unsub.hh = onSnapshot(doc(db, "households", hid), snap => {
     if (!snap.exists()) { state.household = null; state.householdId = null; emit(); return; }
@@ -121,7 +122,11 @@ function onHousehold(hid) {
     unsub[name] = onSnapshot(collection(db, "households", hid, name), snap => {
       state[name] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       emit();
-    }, err => reportError(err, "listen " + name));
+    }, err => {
+      // aturan Firestore lama belum mengenal koleksi ini → tampilkan petunjuk, bukan toast berulang
+      if (String(err?.code || "").includes("permission-denied")) { state.planRulesMissing = true; emit(); }
+      else reportError(err, "listen " + name);
+    });
   }
 }
 

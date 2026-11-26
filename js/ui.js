@@ -110,7 +110,7 @@ export async function busy(btn, fn) {
 
 export function friendlyError(err) {
   const c = err?.code || "";
-  if (c.includes("permission-denied")) return "Akses ditolak. Pastikan kamu anggota rumah tangga ini.";
+  if (c.includes("permission-denied")) return "Akses ditolak database. Jika baru update aplikasi, pastikan firestore.rules terbaru sudah di-Publish di Firebase.";
   if (c.includes("unavailable")) return "Tidak ada koneksi. Coba lagi nanti.";
   if (c === "auth/network-request-failed") return "Koneksi bermasalah saat login.";
   if (c === "auth/unauthorized-domain") return "Domain ini belum diizinkan di Firebase (Authentication → Settings → Authorized domains).";

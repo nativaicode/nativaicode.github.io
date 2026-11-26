@@ -15,4 +15,4 @@ export const firebaseConfig = {
 export const VAPID_KEY = "";
 
 export const APP_NAME = "Keuangan Nativan";
-export const APP_VERSION = "2.5.0";
+export const APP_VERSION = "2.5.1";
