@@ -1,11 +1,11 @@
 /* Keuangan Nativan — Service Worker
    Aset aplikasi di-cache agar bisa dibuka offline. Data (Firestore) punya cache offline sendiri.
    Naikkan VERSION setiap kali ada perubahan file supaya pengguna mendapat versi baru. */
-const VERSION = "kn-v2.4.0";
+const VERSION = "kn-v2.5.0";
 const SHELL = [
   "./", "./index.html", "./privacy.html", "./manifest.json",
   "./css/app.css",
-  "./js/app.js", "./js/data.js", "./js/ui.js", "./js/util.js", "./js/insights.js", "./js/config.js",
+  "./js/app.js", "./js/data.js", "./js/ui.js", "./js/util.js", "./js/insights.js", "./js/plan.js", "./js/plan-logic.js", "./js/lock.js", "./js/report.js", "./js/push.js", "./js/config.js",
   "./vendor/firebase.js", "./vendor/xlsx.js",
   "./assets/fonts/plus-jakarta-sans-latin-wght-normal.woff2", "./assets/fonts/plus-jakarta-sans-latin-ext-wght-normal.woff2",
   "./assets/icons/icon-192.png", "./assets/icons/icon-512.png", "./assets/icons/maskable-512.png",
@@ -48,12 +48,25 @@ self.addEventListener("fetch", e => {
   );
 });
 
+/* Notifikasi push dari pengingat harian (FCM, pesan data) */
+self.addEventListener("push", e => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch { p = { data: { body: e.data?.text() } }; }
+  const d = p.data || {}, n = p.notification || {};
+  const title = d.title || n.title || "Keuangan Nativan";
+  e.waitUntil(self.registration.showNotification(title, {
+    body: d.body || n.body || "", icon: "assets/icons/icon-192.png", badge: "assets/icons/icon-192.png",
+    tag: d.tag || "daily", renotify: true, data: { url: d.url || "./" },
+  }));
+});
+
 self.addEventListener("notificationclick", e => {
   e.notification.close();
+  const url = new URL(e.notification.data?.url || "./", self.registration.scope).href;
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
-      for (const c of list) if ("focus" in c) return c.focus();
-      return self.clients.openWindow("./");
+      for (const c of list) if ("focus" in c) { c.navigate?.(url).catch(() => {}); return c.focus(); }
+      return self.clients.openWindow(url);
     }),
   );
 });

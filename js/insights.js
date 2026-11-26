@@ -1,6 +1,7 @@
 /* Mesin insight keuangan keluarga — aturan sederhana, dihitung di perangkat (tanpa server).
    Input murni → output daftar insight, supaya mudah diuji dan diubah. */
 import { rupiah, summarize, catIcon } from "./util.js";
+import { billStatus, billDueLabel, debtStatus } from "./plan-logic.js";
 
 const LV = { bad: 0, warn: 1, info: 2, good: 3 }; // urutan prioritas
 
@@ -14,7 +15,7 @@ const LV = { bad: 0, warn: 1, info: 2, good: 3 }; // urutan prioritas
  * @param {object} p.balances   {walletId: saldo}
  * @param {Date}   p.now
  */
-export function computeInsights({ period, list, budget = 0, prev = [], wallets = [], balances = {}, now = new Date() }) {
+export function computeInsights({ period, list, budget = 0, prev = [], wallets = [], balances = {}, now = new Date(), bills = [], debts = [], catBudgets = {} }) {
   const out = [];
   const add = (id, level, icon, title, text) => out.push({ id: `${period.key}:${id}`, level, icon, title, text });
   const s = summarize(list);
@@ -111,6 +112,39 @@ export function computeInsights({ period, list, budget = 0, prev = [], wallets =
   for (const w of wallets) {
     if (!w.archived && (balances[w.id] || 0) < 0) add(`neg-${w.id}`, "warn", "⚠️", `Saldo ${w.name} minus`,
       `Tercatat ${rupiah(balances[w.id])}. Mungkin ada pemasukan yang belum dicatat — cek lalu gunakan "Sesuaikan saldo".`);
+  }
+
+  /* 10. Tagihan rutin: terlambat / jatuh tempo dekat */
+  const bs = bills.filter(b => b.active !== false).map(b => ({ b, st: billStatus(b, now) }));
+  const late = bs.filter(x => x.st.state === "overdue");
+  const near = bs.filter(x => x.st.state === "today" || x.st.state === "soon").sort((a, b) => a.st.days - b.st.days);
+  if (late.length) add(`bill-late-${late.map(x => x.b.id + x.st.key).join(",")}`, "bad", "⏰",
+    late.length === 1 ? `Tagihan ${late[0].b.name} terlambat` : `${late.length} tagihan terlambat`,
+    late.map(x => `${x.b.name} ${rupiah(x.b.amount)} (${billDueLabel(x.st).toLowerCase()})`).join(", ") + ". Segera bayar untuk menghindari denda.");
+  if (near.length) add(`bill-near-${near.map(x => x.b.id + x.st.key).join(",")}`, near.some(x => x.st.days <= 1) ? "warn" : "info", "🧾",
+    near.length === 1 ? `Tagihan ${near[0].b.name} ${billDueLabel(near[0].st).toLowerCase()}` : `${near.length} tagihan segera jatuh tempo`,
+    near.map(x => `${x.b.name} ${rupiah(x.b.amount)} — ${billDueLabel(x.st).toLowerCase()}`).join("; ") + `. Total ${rupiah(near.reduce((a, x) => a + (Number(x.b.amount) || 0), 0))}.`);
+
+  /* 11. Budget per kategori */
+  const spentCat = {};
+  for (const t of list) if (t.type === "expense") spentCat[t.category || "Lainnya"] = (spentCat[t.category || "Lainnya"] || 0) + t.amount;
+  for (const [c, lim] of Object.entries(catBudgets || {})) {
+    if (!(lim > 0)) continue;
+    const v = spentCat[c] || 0, pct = v / lim * 100;
+    if (pct >= 100) add(`catb-${c}-100`, "warn", catIcon(c), `Budget ${c} habis`, `Terpakai ${rupiah(v)} dari ${rupiah(lim)} (lebih ${rupiah(v - lim)}).`);
+    else if (pct >= 80) add(`catb-${c}-80`, "info", catIcon(c), `Budget ${c} hampir habis`, `Sudah ${Math.round(pct)}% (${rupiah(v)} dari ${rupiah(lim)}), sisa ${rupiah(lim - v)} untuk ${daysLeft} hari.`);
+  }
+
+  /* 12. Utang-piutang lewat jatuh tempo / segera */
+  for (const d of debts) {
+    const st = debtStatus(d, now);
+    if (st.settled || st.days == null) continue;
+    if (st.overdue) add(`debt-${d.id}`, d.kind === "utang" ? "warn" : "info", d.kind === "utang" ? "💸" : "🤝",
+      d.kind === "utang" ? `Utang ke ${d.person} lewat jatuh tempo` : `Piutang ${d.person} belum kembali`,
+      `Sisa ${rupiah(st.remaining)}, jatuh tempo ${-st.days} hari lalu.`);
+    else if (st.days <= 3) add(`debt-${d.id}-soon`, "info", d.kind === "utang" ? "💸" : "🤝",
+      d.kind === "utang" ? `Utang ke ${d.person} jatuh tempo ${st.days === 0 ? "hari ini" : st.days + " hari lagi"}` : `Piutang ${d.person} jatuh tempo ${st.days === 0 ? "hari ini" : st.days + " hari lagi"}`,
+      `Sisa ${rupiah(st.remaining)}.`);
   }
 
   /* 9. Pengingat mencatat: belum ada catatan 3 hari terakhir */

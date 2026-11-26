@@ -10,5 +10,9 @@ export const firebaseConfig = {
   appId: "1:237494934378:web:0cdf2fd23e27cbffbf6313",
 };
 
+/* Kunci publik Web Push (Firebase Console → Project settings → Cloud Messaging →
+   Web Push certificates → Generate key pair). Kosong = pengingat harian nonaktif. */
+export const VAPID_KEY = "";
+
 export const APP_NAME = "Keuangan Nativan";
-export const APP_VERSION = "2.4.0";
+export const APP_VERSION = "2.5.0";

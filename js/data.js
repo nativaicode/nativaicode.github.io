@@ -10,7 +10,7 @@ import { firebaseConfig } from "./config.js";
 import { periodSummary } from "./insights.js";
 import { periodOf, diffEffects, balanceEffects, inviteCode, uid as makeId, DEFAULT_CATEGORIES, clampPayday, toDate } from "./util.js";
 
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = "id";
 export const db = initializeFirestore(app, {
@@ -31,6 +31,7 @@ export const state = {
   householdId: undefined,   // undefined = belum diketahui, null = belum punya
   household: null,
   budgets: {},              // periodKey -> amount
+  bills: [], goals: [], debts: [], // Rencana
   current: { period: null, list: [], ready: false },   // periode berjalan
   view: { offset: 0, period: null, list: [], ready: false }, // periode yang dipilih (riwayat/statistik)
   prev: { key: "", list: [] }, // ringkasan 3 periode sebelumnya (pembanding insight)
@@ -50,7 +51,7 @@ function reportError(err, ctx) {
 }
 
 /* ─── Listener management ──────────────────────────────────── */
-let unsub = { user: null, hh: null, cur: null, view: null, budgets: null };
+let unsub = { user: null, hh: null, cur: null, view: null, budgets: null, bills: null, goals: null, debts: null };
 function stop(k) { if (unsub[k]) { unsub[k](); unsub[k] = null; } }
 function stopAll() { Object.keys(unsub).forEach(stop); }
 
@@ -91,8 +92,8 @@ export function setViewOffset(offset) {
 let lastPayday = null;
 function onHousehold(hid) {
   lastPayday = null;
-  stop("hh"); stop("cur"); stop("view"); stop("budgets");
-  state.household = null; state.budgets = {};
+  stop("hh"); stop("cur"); stop("view"); stop("budgets"); stop("bills"); stop("goals"); stop("debts");
+  state.household = null; state.budgets = {}; state.bills = []; state.goals = []; state.debts = [];
   if (!hid) { emit(); return; }
   unsub.hh = onSnapshot(doc(db, "households", hid), snap => {
     if (!snap.exists()) { state.household = null; state.householdId = null; emit(); return; }
@@ -116,6 +117,12 @@ function onHousehold(hid) {
     snap.forEach(d => { b[d.id] = Number(d.data().amount) || 0; });
     state.budgets = b; emit();
   }, err => reportError(err, "listen budgets"));
+  for (const name of ["bills", "goals", "debts"]) {
+    unsub[name] = onSnapshot(collection(db, "households", hid, name), snap => {
+      state[name] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      emit();
+    }, err => reportError(err, "listen " + name));
+  }
 }
 
 /* ─── Auth ─────────────────────────────────────────────────── */
@@ -285,7 +292,8 @@ function cleanTrx(t) {
   }
   if (t.type === "expense") out.expenseType = t.expenseType === "Tetap" ? "Tetap" : "Rutin";
   if (t.type === "transfer") { out.toWalletId = t.toWalletId; out.owner = t.owner || ""; out.toOwner = t.toOwner || t.owner || ""; }
-  if (t.type === "adjust") out.category = "Penyesuaian Saldo";
+  if (t.type === "adjust") out.category = t.category || "Penyesuaian Saldo";
+  for (const k of ["billId", "billKey", "debtId"]) if (t[k]) out[k] = t[k];
   return out;
 }
 
@@ -311,6 +319,8 @@ export async function updateTransaction(oldT, t) {
 export async function deleteTransaction(oldT) {
   const b = writeBatch(db);
   b.delete(doc(db, "households", state.householdId, "transactions", oldT.id));
+  // transaksi pembayaran tagihan dihapus → tandai tagihan belum dibayar lagi
+  if (oldT.billId && oldT.billKey && state.bills.some(x => x.id === oldT.billId)) b.update(doc(db, "households", state.householdId, "bills", oldT.billId), { [`paid.${oldT.billKey}`]: deleteField() });
   applyBalances(b, diffEffects(oldT, null));
   touchPast(oldT.date);
   return commit(b, "hapus transaksi");
@@ -382,6 +392,97 @@ export async function loadPrevSummaries() {
     emit();
   } catch (err) { console.warn("prev summaries", err); }
   finally { prevLoading = ""; }
+}
+
+/* ═══════════ RENCANA: tagihan, target, utang ═══════════ */
+const colRef = name => collection(db, "households", state.householdId, name);
+const docRef = (name, id) => doc(db, "households", state.householdId, name, id);
+
+export async function saveItem(name, item) {
+  const { id, ...data } = item;
+  const b = writeBatch(db);
+  if (id) b.set(docRef(name, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  else b.set(doc(colRef(name)), { ...data, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return commit(b, "simpan " + name);
+}
+export async function deleteItem(name, id) {
+  const b = writeBatch(db);
+  b.delete(docRef(name, id));
+  return commit(b, "hapus " + name);
+}
+
+/** Bayar tagihan: catat transaksi pengeluaran + tandai siklus lunas */
+export async function payBill(bill, key, { amount, walletId, date, owner }) {
+  const data = cleanTrx({
+    type: "expense", amount, walletId, date, owner, category: bill.category || "Tagihan & Utilitas",
+    expenseType: bill.expenseType || "Tetap", note: bill.name, billId: bill.id, billKey: key,
+  });
+  const ref = doc(colRef("transactions"));
+  const b = writeBatch(db);
+  b.set(ref, { ...data, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  applyBalances(b, balanceEffects(data));
+  b.update(docRef("bills", bill.id), { [`paid.${key}`]: { trxId: ref.id, amount: data.amount, by: state.user.uid } });
+  touchPast(date);
+  return commit(b, "bayar tagihan");
+}
+/** Tandai lunas tanpa membuat transaksi (mis. sudah dicatat manual / autodebet) */
+export async function markBillPaid(bill, key, paid = true) {
+  const b = writeBatch(db);
+  b.update(docRef("bills", bill.id), { [`paid.${key}`]: paid ? { trxId: "", amount: Number(bill.amount) || 0, by: state.user.uid } : deleteField() });
+  return commit(b, "tandai tagihan");
+}
+
+/** Setoran / penarikan target tabungan (mode manual) */
+export async function goalDeposit(goal, delta) {
+  const b = writeBatch(db);
+  b.update(docRef("goals", goal.id), { saved: increment(Math.round(delta)), updatedAt: serverTimestamp() });
+  return commit(b, "setor target");
+}
+
+/** Buat utang/piutang; jika walletId diisi, saldo dompet ikut berubah (dicatat sebagai penyesuaian, bukan pemasukan/pengeluaran) */
+export async function createDebt(d, walletId) {
+  const ref = doc(colRef("debts"));
+  const b = writeBatch(db);
+  b.set(ref, { ...d, paid: 0, payments: [], settled: false, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  if (walletId) {
+    const sign = d.kind === "utang" ? 1 : -1; // pinjam uang → saldo bertambah; meminjamkan → berkurang
+    const t = cleanTrx({ type: "adjust", amount: sign * d.amount, walletId, date: new Date(), category: d.kind === "utang" ? "Utang" : "Piutang", note: (d.kind === "utang" ? "Pinjam dari " : "Dipinjamkan ke ") + d.person, debtId: ref.id });
+    b.set(doc(colRef("transactions")), { ...t, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    applyBalances(b, balanceEffects(t));
+  }
+  return commit(b, "buat utang");
+}
+
+/** Catat cicilan/pelunasan utang-piutang */
+export async function debtPayment(debt, amount, walletId) {
+  const amt = Math.round(amount);
+  const paid = (Number(debt.paid) || 0) + amt;
+  const b = writeBatch(db);
+  b.update(docRef("debts", debt.id), {
+    paid, settled: paid >= (Number(debt.amount) || 0),
+    payments: arrayUnion({ amount: amt, at: Date.now(), walletId: walletId || "", by: state.user.uid }),
+    updatedAt: serverTimestamp(),
+  });
+  if (walletId) {
+    const sign = debt.kind === "utang" ? -1 : 1; // bayar utang → saldo berkurang; piutang dibayar → bertambah
+    const t = cleanTrx({ type: "adjust", amount: sign * amt, walletId, date: new Date(), category: debt.kind === "utang" ? "Utang" : "Piutang", note: (debt.kind === "utang" ? "Bayar utang ke " : "Terima pembayaran dari ") + debt.person, debtId: debt.id });
+    b.set(doc(colRef("transactions")), { ...t, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    applyBalances(b, balanceEffects(t));
+  }
+  return commit(b, "bayar utang");
+}
+
+/* ─── Budget per kategori & template catat cepat (di dokumen rumah tangga) ─── */
+export const setCatBudgets = map => updateHousehold({ catBudgets: map });
+export const setTemplates = list => updateSettings("templates", list);
+
+/* ─── Token notifikasi harian (FCM) ─── */
+export async function saveReminderToken(token, on = true) {
+  const b = writeBatch(db);
+  const patch = { dailyReminder: on, updatedAt: serverTimestamp() };
+  if (token) patch.fcmTokens = on ? arrayUnion(token) : arrayRemove(token);
+  b.set(doc(db, "users", state.user.uid), patch, { merge: true });
+  return commit(b, "pengingat harian");
 }
 
 export { periodOf };

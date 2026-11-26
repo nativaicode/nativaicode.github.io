@@ -8,6 +8,10 @@ import {
 import { icon, GOOGLE_SVG, toast, openSheet, confirmDialog, busy, friendlyError } from "./ui.js";
 import { APP_NAME, APP_VERSION } from "./config.js";
 import { computeInsights } from "./insights.js";
+import { installPlan, sortedBills, billRow, openBillPay } from "./plan.js";
+import { setupLock, lockSettingsSheet, lockConfigured } from "./lock.js";
+import { shareReport } from "./report.js";
+import { pushSupported, enableDailyReminder, disableDailyReminder, dailyReminderOn } from "./push.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const appEl = document.getElementById("app");
@@ -51,12 +55,12 @@ const isOwner = () => state.household?.ownerId === state.user?.uid;
 
 function trxTitle(t) {
   if (t.type === "transfer") return `${walletName(t.walletId)} → ${walletName(t.toWalletId)}`;
-  if (t.type === "adjust") return "Penyesuaian saldo";
+  if (t.type === "adjust") return t.category && t.category !== "Penyesuaian Saldo" ? t.category : "Penyesuaian saldo";
   return t.category || TYPE_LABEL[t.type];
 }
 function trxIcon(t) {
   if (t.type === "transfer") return "🔄";
-  if (t.type === "adjust") return "⚖️";
+  if (t.type === "adjust") return t.category === "Utang" ? "💸" : t.category === "Piutang" ? "🤝" : "⚖️";
   return catIcon(t.category);
 }
 function trxAmount(t) {
@@ -73,7 +77,7 @@ function trxRow(t) {
     if (!(autoFrom && autoTo) && t.owner) sub.push(t.toOwner && t.toOwner !== t.owner ? `${t.owner} → ${t.toOwner}` : t.owner);
   } else if (t.owner && t.type !== "adjust" && t.owner !== walletOwner(t.walletId)) sub.push(t.owner);
   if (t.note && t.type !== "adjust") sub.push(t.note);
-  if (t.type === "adjust") sub.push(walletName(t.walletId));
+  if (t.type === "adjust") { sub.push(walletName(t.walletId)); if (t.note && t.category !== "Penyesuaian Saldo") sub.push(t.note); }
   return `<button class="trx-item" data-trx="${esc(t.id)}">
     <div class="trx-ico ${t.type}">${trxIcon(t)}</div>
     <div class="trx-main">
@@ -203,6 +207,7 @@ const NAV = [
   { id: "home", label: "Beranda", icon: "home" },
   { id: "history", label: "Riwayat", icon: "list" },
   { id: "stats", label: "Budget", icon: "chart" },
+  { id: "plan", label: "Rencana", icon: "target" },
   { id: "settings", label: "Akun", icon: "user" },
 ];
 const route = () => { const r = location.hash.replace(/^#\/?/, ""); return NAV.some(n => n.id === r) ? r : "home"; };
@@ -213,6 +218,9 @@ function avatarHtml(cls = "") {
     ? `<img class="avatar ${cls}" src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
     : `<div class="avatar ${cls}">${esc((u.displayName || u.email || "?")[0].toUpperCase())}</div>`;
 }
+
+/** Tombol avatar → Akun (di HP; di desktop Akun ada di sidebar) */
+const avatarLink = () => `<a href="#/settings" class="hide-desktop" aria-label="Akun">${avatarHtml()}</a>`;
 
 function renderShell() {
   const r = route();
@@ -286,12 +294,14 @@ VIEWS.home = {
     el.innerHTML = `
       <div class="topbar">
         <div><div class="sub" id="hGreet"></div><h1 id="hName"></h1></div>
-        <div class="topbar-actions"><button class="icon-btn" id="hTheme" aria-label="Ganti tema"></button><a href="#/settings" class="hide-desktop">${avatarHtml()}</a></div>
+        <div class="topbar-actions"><button class="icon-btn" id="hTheme" aria-label="Ganti tema"></button>${avatarLink()}</div>
       </div>
       <div id="hOffline"></div>
       <div class="grid grid-home">
         <div class="grid">
           <section class="card hero o1" id="hHero"></section>
+          <section class="card o1b hidden" id="hQuick"><div class="card-head"><h2>⚡ Catat cepat</h2><button class="link-btn" id="hQuickEdit">Atur</button></div><div class="chips quick-chips" id="hQuickList"></div></section>
+          <section class="card o1c hidden" id="hBills"><div class="card-head"><h2>🧾 Tagihan terdekat</h2><a class="link-btn" href="#/plan">Semua</a></div><div class="plan-list" id="hBillList"></div></section>
           <section class="card o3" id="hBudget"></section>
           <section class="card o4">
             <div class="card-head"><h2>Transaksi terbaru</h2><a class="link-btn" href="#/history">Lihat semua</a></div>
@@ -315,10 +325,14 @@ VIEWS.home = {
       </div>`;
     $("#hTheme", el).onclick = () => { const dark = document.documentElement.dataset.theme === "dark"; pref.set("theme", dark ? "light" : "dark"); applyTheme(); this.update(el); };
     $("#hAddWallet", el).onclick = () => walletSheet();
+    $("#hQuickEdit", el).onclick = () => templatesSheet();
+    $("#hQuickList", el).onclick = e => { const b = e.target.closest("[data-tpl]"); if (b) quickRecord(b.dataset.tpl); };
     el.addEventListener("click", e => {
       if (e.target.closest("[data-eye]")) { pref.set("hide", !hidden()); this.update(el); }
       const w = e.target.closest("[data-wallet]"); if (w) walletDetail(w.dataset.wallet);
       if (e.target.closest("[data-setbudget]")) budgetSheet(state.current.period);
+      const pl = e.target.closest("[data-pl]");
+      if (pl) { e.stopPropagation(); pref.set("planTab", "bills"); if (pl.dataset.pl === "pay") openBillPay(pl.dataset.id); else location.hash = "#/plan"; }
     });
   },
   update(el) {
@@ -373,6 +387,14 @@ VIEWS.home = {
         <div class="w-bal ${balance(w.id) < 0 ? "neg" : ""}">${money(balance(w.id))}</div>
       </button>`).join("") : `<div class="muted">Belum ada dompet.</div>`;
 
+    // Catat cepat & tagihan terdekat
+    const tpls = S().templates || [];
+    $("#hQuick", el).classList.toggle("hidden", !tpls.length);
+    $("#hQuickList", el).innerHTML = tpls.map(t => `<button class="chip quick-chip" data-tpl="${esc(t.id)}">${t.type === "income" ? "💰" : catIcon(t.category)} ${esc(t.label)} <span class="faint num">${esc(rupiahShort(t.amount))}</span></button>`).join("");
+    const nb = sortedBills().filter(x => !(x.st.paidCurrent && x.st.state === "upcoming") && x.st.days <= 7).slice(0, 3);
+    $("#hBills", el).classList.toggle("hidden", !nb.length);
+    $("#hBillList", el).innerHTML = nb.map(x => billRow(x.b, x.st, { compact: true })).join("");
+
     // Insight
     const ins = currentInsights();
     $("#hIns", el).innerHTML = cur.ready ? insightList(ins.slice(0, 3)) : `<div class="skeleton"></div>`;
@@ -404,6 +426,7 @@ function currentInsights() {
   return computeInsights({
     period: cur.period, list: cur.list, budget: budgetFor(cur.period.key).amount,
     prev: state.prev.list, wallets: allWallets(), balances: state.household?.balances || {}, now: new Date(),
+    bills: state.bills, debts: state.debts, catBudgets: state.household?.catBudgets || {},
   });
 }
 const LEVEL_CLASS = { bad: "bad", warn: "warn", info: "info", good: "ok" };
@@ -434,6 +457,87 @@ function notifyInsights(items) {
   }
 }
 
+/* ─── Budget per kategori ─── */
+function catBudgetBars(list) {
+  const lim = state.household?.catBudgets || {};
+  const spent = {};
+  for (const t of list) if (t.type === "expense") spent[t.category || "Lainnya"] = (spent[t.category || "Lainnya"] || 0) + t.amount;
+  const rows = Object.entries(lim).filter(([, v]) => v > 0).map(([c, v]) => ({ c, v, s: spent[c] || 0 })).sort((a, b) => b.s / b.v - a.s / a.v);
+  if (!rows.length) return `<p class="muted" style="margin:0">Belum ada. Atur batas per kategori (mis. Makan & Minum Rp 1,5 jt, Hiburan Rp 300 rb) agar tahu kategori mana yang paling boros.</p>`;
+  return `<div class="bars cat-budget">${rows.map(r => {
+    const pct = r.s / r.v * 100, cls = pct >= 100 ? "w100" : pct >= 90 ? "w90" : pct >= 80 ? "w80" : "";
+    return `<div class="bar-row"><div class="ico">${catIcon(r.c)}</div>
+      <div><div class="name"><span>${esc(r.c)}</span><span class="faint">${money(r.s)} / ${money(r.v)}</span></div>
+      <div class="progress ${cls}" style="height:8px;margin:5px 0 0"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div></div>
+      <div class="val" style="color:${pct >= 100 ? "var(--expense)" : "inherit"}">${pct >= 100 ? "Lebih " + money(r.s - r.v) : "Sisa " + money(r.v - r.s)}</div></div>`;
+  }).join("")}</div>`;
+}
+function catBudgetSheet() {
+  const lim = { ...(state.household?.catBudgets || {}) };
+  const cs = cats("expense");
+  const s = openSheet({
+    title: "Budget per kategori",
+    body: `<p class="muted" style="margin-top:0">Batas per periode gajian. Kosongkan kategori yang tidak ingin dibatasi. Berlaku untuk semua pengeluaran (rutin & tetap) di kategori tsb.</p>
+      <div class="cb-list">${cs.map((c, i) => `<div class="cb-row"><span>${catIcon(c)} ${esc(c)}</span><div class="amount-wrap"><span style="font-size:13px;left:10px">Rp</span><input class="input num" data-cb="${i}" inputmode="numeric" placeholder="—" value="${lim[c] ? formatNominalInput(lim[c]) : ""}" style="padding-left:36px;text-align:right"></div></div>`).join("")}</div>
+      <div class="hint" id="cbTotal" style="margin:10px 0 14px"></div>
+      <button class="btn btn-primary btn-block" id="cbSave">Simpan</button>`,
+  });
+  const total = () => { const t = s.$$("[data-cb]").reduce((a, x) => a + parseNominal(x.value), 0); s.$("#cbTotal").textContent = t ? `Total batas: ${rupiah(t)}` : ""; };
+  s.$$("[data-cb]").forEach(x => x.oninput = () => { x.value = formatNominalInput(x.value); total(); });
+  total();
+  s.$("#cbSave").onclick = e => busy(e.currentTarget, async () => {
+    const map = {};
+    s.$$("[data-cb]").forEach(x => { const v = parseNominal(x.value); if (v) map[cs[+x.dataset.cb]] = v; });
+    try { await D.setCatBudgets(map); s.close(); toast("Budget kategori disimpan ✓", "success"); } catch (err) { toast(friendlyError(err), "error"); }
+  });
+}
+
+/* ─── Laporan (gambar) ─── */
+async function makeReport() {
+  const p = state.view.period, list = state.view.list;
+  const sm = summarize(list);
+  const ins = (state.view.offset || 0) === 0 ? currentInsights() : [];
+  try {
+    const r = await shareReport({
+      household: state.household.name, period: p, summary: sm, budget: budgetFor(p.key).amount,
+      insights: ins.slice(0, 3), balance: activeWallets().reduce((a, w) => a + balance(w.id), 0),
+    });
+    toast(r === "shared" ? "Laporan dibagikan ✓" : "Laporan diunduh ✓", "success");
+  } catch (err) { if (err?.name !== "AbortError") toast("Gagal membuat laporan: " + (err?.message || err), "error"); }
+}
+
+/* ─── Template catat cepat ─── */
+async function quickRecord(id) {
+  const t = (S().templates || []).find(x => x.id === id);
+  if (!t) return;
+  const w = walletById(t.walletId);
+  if (!w || w.archived) return toast("Dompet template tidak ada lagi — atur ulang template.", "warn");
+  const data = { ...t, date: new Date(), note: t.note || "", owner: walletOwner(t.walletId) || myNick() || owners()[0] };
+  try {
+    const r = await D.addTransaction(data);
+    toast(`${t.label} ${rupiah(t.amount)} tercatat${r.offline ? " (offline)" : ""}`, "success", 6000, {
+      label: "Batalkan", fn: async () => {
+        const hit = state.current.list.find(x => x.type === t.type && x.amount === t.amount && x.category === t.category && x.walletId === t.walletId && Date.now() - x.date < 120000);
+        if (hit) { await D.deleteTransaction(hit); toast("Dibatalkan", "info"); }
+      },
+    });
+  } catch (err) { toast(friendlyError(err), "error"); }
+}
+function templatesSheet() {
+  const list = [...(S().templates || [])];
+  const s = openSheet({
+    title: "Template catat cepat",
+    body: `<p class="muted" style="margin-top:0">Template dipakai untuk mencatat transaksi yang sering dengan 1 ketukan dari Beranda. Buat template dari form <b>Catat transaksi</b> → "☆ Simpan sebagai template".</p>
+      <div class="set-list" id="tpList"></div>`,
+  });
+  const draw = () => {
+    s.$("#tpList").innerHTML = list.length ? list.map((t, i) => `<div class="set-item"><div class="si-ico">${t.type === "income" ? "💰" : catIcon(t.category)}</div><div class="si-main"><b>${esc(t.label)}</b><small>${esc(TYPE_LABEL[t.type])} · ${esc(rupiah(t.amount))} · ${esc(walletName(t.walletId))}</small></div><button class="icon-btn" data-del="${i}" aria-label="Hapus">${icon("trash")}</button></div>`).join("")
+      : `<div class="empty" style="padding:18px">Belum ada template.</div>`;
+  };
+  draw();
+  s.$("#tpList").onclick = async e => { const b = e.target.closest("[data-del]"); if (!b) return; list.splice(+b.dataset.del, 1); draw(); await D.setTemplates(list); toast("Template dihapus", "success"); };
+}
+
 /* Peringatan budget 80/90/100% (sekali per level per periode) */
 function budgetAlert(p, pct, sisa) {
   if (!state.current.ready) return;
@@ -457,7 +561,7 @@ VIEWS.history = {
   mount(el) {
     el.innerHTML = `
       <div class="topbar"><div><h1>Riwayat</h1><div class="sub">Semua transaksi per periode</div></div>
-        <div class="topbar-actions"><button class="btn btn-ghost btn-sm" id="hsExport">${icon("download")} <span class="hide-mobile">Export</span> Excel</button></div></div>
+        <div class="topbar-actions">${avatarLink()}<button class="btn btn-ghost btn-sm" id="hsExport">${icon("download")} <span class="hide-mobile">Export</span> Excel</button></div></div>
       <div id="hsOffline"></div>
       ${periodNav("pn")}
       <div class="toolbar">
@@ -512,12 +616,14 @@ let trendCache = { key: "", data: null, loading: false };
 VIEWS.stats = {
   mount(el) {
     el.innerHTML = `
-      <div class="topbar"><div><h1>Budget & Statistik</h1><div class="sub">Pantau batas pengeluaran per periode gajian</div></div></div>
+      <div class="topbar"><div><h1>Budget & Statistik</h1><div class="sub">Pantau batas pengeluaran per periode gajian</div></div>
+        <div class="topbar-actions">${avatarLink()}<button class="btn btn-ghost btn-sm" id="stReport">📄 <span class="hide-mobile">Bagikan</span> Laporan</button></div></div>
       ${periodNav("pn")}
       <div class="grid grid-2" style="margin-top:12px">
         <section class="card span-2" id="stIns"><div class="card-head"><h2>💡 Analisis & saran</h2></div><div id="stInsBody"></div></section>
         <section class="card" id="stBudget"></section>
         <section class="card" id="stSplit"></section>
+        <section class="card span-2"><div class="card-head"><h2>🎯 Budget per kategori</h2><button class="btn btn-sm btn-ghost" id="stCatBudEdit">${icon("edit")} Atur</button></div><div id="stCatBud"></div></section>
         <section class="card"><div class="card-head"><h2>Pengeluaran per kategori</h2></div><div id="stCats"></div></section>
         <section class="card"><div class="card-head"><h2>Pengeluaran per kepemilikan</h2></div><div id="stOwners"></div></section>
         <section class="card span-2">
@@ -527,6 +633,8 @@ VIEWS.stats = {
       </div>`;
     bindPeriodNav(el);
     el.addEventListener("click", e => { if (e.target.closest("[data-setbudget]")) budgetSheet(state.view.period); });
+    $("#stCatBudEdit", el).onclick = () => catBudgetSheet();
+    $("#stReport", el).onclick = e => busy(e.currentTarget, () => makeReport());
   },
   update(el) {
     updatePeriodNav(el);
@@ -556,6 +664,7 @@ VIEWS.stats = {
         <div><span>Selisih</span><b>${money(s.income - s.expense, { sign: true })}</b></div>
       </div>`;
     $("#stCats", el).innerHTML = catBars(s.byCategory);
+    $("#stCatBud", el).innerHTML = catBudgetBars(state.view.list);
     const ob = Object.fromEntries(Object.entries(s.byOwner));
     $("#stOwners", el).innerHTML = Object.keys(ob).length ? catBars(ob).replace(/<div class="ico">.*?<\/div>/g, '<div class="ico">👤</div>') : `<div class="empty" style="padding:18px">Belum ada data.</div>`;
     this.trend(el);
@@ -618,6 +727,16 @@ VIEWS.settings = {
         payday: () => paydaySheet(),
         theme: () => { const order = ["auto", "light", "dark"]; const t = order[(order.indexOf(pref.get("theme", "auto")) + 1) % 3]; pref.set("theme", t); applyTheme(); this.update(el); },
         notif: () => toggleNotif().then(() => this.update(el)),
+        templates: () => templatesSheet(),
+        catbud: () => catBudgetSheet(),
+        lock: () => lockSettingsSheet().then(() => this.update(el)),
+        daily: async () => {
+          try {
+            if (dailyReminderOn()) { await disableDailyReminder(); toast("Pengingat harian dimatikan"); }
+            else { await enableDailyReminder(); toast("Pengingat harian aktif ⏰ setiap pukul 20.00", "success"); }
+          } catch (err) { toast(err.message || String(err), "warn", 7000); }
+          this.update(el);
+        },
         export: () => exportSheet(),
         recalc: () => recalcSheet(),
         archived: () => archivedSheet(),
@@ -658,10 +777,14 @@ VIEWS.settings = {
             ${item("cats", "💼", "Kategori pemasukan", esc(cats("income").join(", ")), "", "income")}
             ${item("owners", "👥", "Kepemilikan", esc(owners().join(", ")))}
             ${item("payday", "📅", "Tanggal gajian (awal periode)", "Periode budget dimulai tiap tanggal ini", "Tgl " + payday())}
+            ${item("templates", "⚡", "Template catat cepat", "Transaksi favorit 1 ketukan", String((S().templates || []).length))}
+            ${item("catbud", "🎯", "Budget per kategori", "Batas per kategori tiap periode", String(Object.keys(state.household?.catBudgets || {}).length || "Atur"))}
           </div></div>
           <div class="set-group"><h3>Aplikasi</h3><div class="set-list">
             ${item("theme", "🌓", "Tema", "", themeLabel)}
             ${item("notif", "🔔", "Notifikasi peringatan budget", "Peringatan budget & insight boros/hemat", notifOn ? "Aktif" : "Mati")}
+            ${item("daily", "⏰", "Pengingat harian 20.00", "Ringkasan & tagihan, walau aplikasi tertutup", dailyReminderOn() ? "Aktif" : "Mati")}
+            ${item("lock", "🔒", "Kunci aplikasi", "PIN / sidik jari di perangkat ini", lockConfigured() ? "Aktif" : "Mati")}
             ${item("export", "📤", "Export ke Excel", "Unduh transaksi sebagai .xlsx")}
             ${item("recalc", "🧮", "Hitung ulang saldo", "Perbaiki saldo dari seluruh transaksi")}
           </div></div>
@@ -695,6 +818,7 @@ function trxForm(existing = null, presetType = "expense") {
       <div class="seg t-${f.type}" id="fType" ${existing ? 'style="pointer-events:none;opacity:.7"' : ""}>
         <button data-t="expense">Pengeluaran</button><button data-t="income">Pemasukan</button><button data-t="transfer">Pindah Dana</button>
       </div>
+      <div class="chips tpl-chips" id="fTpl"></div>
       <div class="field"><label for="fAmt">Nominal</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="fAmt" inputmode="numeric" autocomplete="off" placeholder="0" value="${f.amount ? formatNominalInput(f.amount) : ""}" autofocus></div></div>
       <div id="fDyn"></div>
       <div class="row-2">
@@ -703,7 +827,8 @@ function trxForm(existing = null, presetType = "expense") {
       </div>
       <div class="hint hidden" id="fOwnerAuto" style="margin:-6px 0 14px"></div>
       <div class="field"><label for="fNote">Catatan (opsional)</label><input class="input" id="fNote" maxlength="300" placeholder="Contoh: belanja mingguan" value="${esc(f.note || "")}"></div>
-      <button class="btn btn-primary btn-block" id="fSave">${existing ? "Simpan perubahan" : "Simpan"}</button>`,
+      <button class="btn btn-primary btn-block" id="fSave">${existing ? "Simpan perubahan" : "Simpan"}</button>
+      ${existing ? "" : `<button class="link-btn" id="fSaveTpl" style="display:block;margin:12px auto 0">☆ Simpan sebagai template catat cepat</button>`}`,
     onMount(api) {
       const dyn = api.$("#fDyn");
       const drawDyn = () => {
@@ -734,6 +859,9 @@ function trxForm(existing = null, presetType = "expense") {
         }
         api.$("#fW").onchange = e => { f.walletId = e.target.value; };
         api.$("#fOwnerWrap label").textContent = f.type === "transfer" ? "Dari kepemilikan" : "Milik";
+        const tpls = existing ? [] : (S().templates || []).filter(t => t.type === f.type);
+        api.$("#fTpl").innerHTML = tpls.map(t => `<button type="button" class="chip" data-tp="${esc(t.id)}">⚡ ${esc(t.label)}</button>`).join("");
+        api.$("#fTpl").classList.toggle("hidden", !tpls.length);
         api.$("#fW2")?.addEventListener("change", syncOwners);
         api.$("#fW").addEventListener("change", syncOwners);
         syncOwners();
@@ -758,6 +886,24 @@ function trxForm(existing = null, presetType = "expense") {
         note.classList.toggle("hidden", !parts.length);
       };
       drawDyn();
+      api.$("#fTpl").onclick = e => {
+        const b = e.target.closest("[data-tp]"); if (!b) return;
+        const t = (S().templates || []).find(x => x.id === b.dataset.tp); if (!t) return;
+        Object.assign(f, { category: t.category, walletId: walletById(t.walletId) ? t.walletId : f.walletId, expenseType: t.expenseType || "Rutin", toWalletId: t.toWalletId || f.toWalletId });
+        drawDyn();
+        api.$("#fAmt").value = formatNominalInput(t.amount);
+        if (t.note) api.$("#fNote").value = t.note;
+      };
+      api.$("#fSaveTpl")?.addEventListener("click", () => {
+        const amount = parseNominal(api.$("#fAmt").value);
+        if (!amount) return toast("Isi nominal dulu untuk dijadikan template.", "warn");
+        if (f.type !== "transfer" && !f.category) return toast("Pilih kategori dulu.", "warn");
+        const label0 = api.$("#fNote").value.trim() || (f.type === "transfer" ? "Pindah dana" : f.category);
+        textSheet("Nama template", label0.slice(0, 24), async label => {
+          const list = [...(S().templates || []), { id: makeId("t_"), label: label.slice(0, 24), type: f.type, amount, category: f.category || "", walletId: f.walletId, toWalletId: f.toWalletId || "", expenseType: f.expenseType || "Rutin", note: api.$("#fNote").value.trim() }];
+          await D.setTemplates(list.slice(-12));
+        });
+      });
       api.$("#fType").onclick = e => { const b = e.target.closest("[data-t]"); if (!b) return; f.type = b.dataset.t; drawDyn(); };
       const amt = api.$("#fAmt");
       amt.oninput = () => { const pos = amt.value.length - amt.selectionStart; amt.value = formatNominalInput(amt.value); const p = Math.max(0, amt.value.length - pos); amt.setSelectionRange(p, p); };
@@ -1058,6 +1204,19 @@ function exportSheet() {
     } catch (err) { toast(friendlyError(err), "error", 6000); }
   });
 }
+
+/* ─── Pasang halaman Rencana & kunci aplikasi ─── */
+installPlan(VIEWS, {
+  state, D, pref, esc, money, rupiah, parseNominal, formatNominalInput, openSheet, confirmDialog, busy, toast, friendlyError, icon,
+  walletLabel, walletName, walletIcon, walletOwner, myNick, activeWallets, allWallets, balance, cats, catIcon, fmtDate, toLocalInput,
+  summarize, avatarLink,
+});
+setupLock({ onForgot: () => D.logout(), isLoggedIn: () => !!state.user });
+
+/* ─── Cegah salin / potong / seret teks di luar kolom input ─── */
+const editable = el => el?.closest?.("input, textarea, select, [contenteditable]");
+["copy", "cut", "dragstart", "selectstart"].forEach(ev => document.addEventListener(ev, e => { if (!editable(e.target)) e.preventDefault(); }));
+document.addEventListener("contextmenu", e => { if (!editable(e.target)) e.preventDefault(); });
 
 /* ─── Service worker ─── */
 if ("serviceWorker" in navigator && !D.USE_EMU) {

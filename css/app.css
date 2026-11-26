@@ -77,7 +77,11 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  /* Teks aplikasi tidak bisa diseleksi / disalin (kecuali kolom input) */
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
+input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+img { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--primary); }
@@ -136,7 +140,8 @@ a:has(> .avatar) { text-decoration: none; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px 14px; }
 .topbar h1 { font-size: 22px; margin: 0; letter-spacing: -.02em; }
 .topbar .sub { font-size: 13px; color: var(--muted); }
-.topbar-actions { display: flex; gap: 8px; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; flex: none; }
+.topbar-actions .btn { white-space: nowrap; }
 .avatar { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: var(--primary-soft); display: grid; place-items: center; font-weight: 700; color: var(--primary); flex: none; }
 .avatar.sm { width: 28px; height: 28px; font-size: 12px; }
 
@@ -451,6 +456,41 @@ button.set-item:hover { background: var(--surface-2); }
 .insight.lv-good { border-left-color: var(--income); background: var(--income-soft); }
 .insight.lv-info { border-left-color: var(--primary); }
 
+/* ─── Rencana ─── */
+.plan-list { display: grid; padding: 6px 10px; }
+.plan-row { display: grid; grid-template-columns: 42px 1fr auto; gap: 12px; align-items: center; padding: 12px 6px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 12px; }
+.plan-row:last-child { border-bottom: 0; }
+.plan-row:hover { background: var(--surface-2); }
+.plan-end { display: grid; justify-items: end; gap: 6px; text-align: right; }
+.plan-end b { font-size: 14px; white-space: nowrap; }
+.plan-end small { font-size: 11.5px; }
+.goal-card { cursor: pointer; }
+.goal-top { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
+.goal-ico { width: 44px; height: 44px; border-radius: 14px; background: var(--primary-soft); display: grid; place-items: center; font-size: 22px; }
+.quick-chips { flex-wrap: wrap; }
+.quick-chip { display: inline-flex; gap: 6px; align-items: center; padding: 9px 14px; color: var(--text); background: var(--surface-2); }
+.quick-chip:active { transform: scale(.96); }
+.tpl-chips { flex-wrap: wrap; margin-bottom: 12px; }
+.cb-list { display: grid; gap: 8px; }
+.cb-row { display: grid; grid-template-columns: 1fr 150px; gap: 10px; align-items: center; font-size: 13.5px; font-weight: 600; }
+.cb-row .input { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+.toast-action { border: 0; background: rgba(255,255,255,.2); color: inherit; font-weight: 800; border-radius: 8px; padding: 4px 10px; flex: none; }
+
+/* ─── Kunci aplikasi ─── */
+#lockRoot { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: grid; place-items: center; padding: 24px; }
+.lock-box { width: 100%; max-width: 340px; text-align: center; }
+.lock-box h2 { margin: 16px 0 4px; font-size: 20px; }
+.lock-dots { display: flex; justify-content: center; gap: 14px; margin: 22px 0; min-height: 16px; }
+.lock-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--primary); }
+.lock-dots i.on { background: var(--primary); }
+.lock-dots.shake { animation: shake .35s; }
+@keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.keypad button { height: 64px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); font-size: 24px; font-weight: 700; }
+.keypad button:active { background: var(--surface-2); }
+.keypad button.ghost { border: 0; background: none; font-size: 15px; color: var(--muted); }
+.lock-msg { min-height: 20px; color: var(--expense); font-size: 13px; font-weight: 600; }
+
 /* ─── Override desktop (ditaruh paling akhir agar tidak tertimpa) ─── */
 @media (min-width: 900px) {
   .main { max-width: 1320px; }
@@ -461,5 +501,5 @@ button.set-item:hover { background: var(--surface-2); }
 /* Urutan kartu Beranda di HP: saldo → dompet → budget → transaksi → kategori */
 @media (max-width: 899px) {
   .grid-home > .grid { display: contents; }
-  .o1 { order: 1; } .o2b { order: 2; } .o2 { order: 3; } .o3 { order: 4; } .o4 { order: 5; } .o5 { order: 6; }
+  .o1 { order: 1; } .o1b { order: 1; } .o1c { order: 1; } .o2b { order: 2; } .o2 { order: 3; } .o3 { order: 4; } .o4 { order: 5; } .o5 { order: 6; }
 }

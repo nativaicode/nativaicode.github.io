@@ -74,6 +74,24 @@ service cloud.firestore {
         allow delete: if isMember(hid);
       }
 
+      // ── Rencana: tagihan rutin, target tabungan, utang-piutang ──
+      match /bills/{id} {
+        allow read, delete: if isMember(hid);
+        allow create, update: if isMember(hid) && request.resource.data.name is string
+          && request.resource.data.name.size() <= 60 && request.resource.data.amount is int;
+      }
+      match /goals/{id} {
+        allow read, delete: if isMember(hid);
+        allow create, update: if isMember(hid) && request.resource.data.name is string
+          && request.resource.data.name.size() <= 60 && request.resource.data.target is int;
+      }
+      match /debts/{id} {
+        allow read, delete: if isMember(hid);
+        allow create, update: if isMember(hid) && request.resource.data.person is string
+          && request.resource.data.person.size() <= 60 && request.resource.data.amount is int
+          && request.resource.data.kind in ['utang', 'piutang'];
+      }
+
       // ── Budget per periode ──
       match /budgets/{periodKey} {
         allow read: if isMember(hid);

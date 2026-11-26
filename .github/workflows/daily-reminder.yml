@@ -1,0 +1,31 @@
+name: Pengingat harian
+
+on:
+  schedule:
+    - cron: "0 13 * * *"   # 13.00 UTC = 20.00 WIB (jadwal GitHub bisa terlambat beberapa menit)
+  workflow_dispatch:         # tombol "Run workflow" untuk uji coba manual
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-reminder
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Jakarta
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pasang firebase-admin
+        run: npm install --no-save --no-package-lock --no-audit --no-fund firebase-admin@13
+      - name: Kirim pengingat
+        run: node scripts/daily-reminder.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
