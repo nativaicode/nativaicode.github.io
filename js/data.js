@@ -174,7 +174,7 @@ export async function createHousehold({ name, paydayDay, ownerName }) {
     name: name || "Keluarga",
     ownerId: u.uid,
     members: [u.uid],
-    memberInfo: { [u.uid]: memberInfo(u) },
+    memberInfo: { [u.uid]: { ...memberInfo(u), nick: (ownerName || memberInfo(u).name.split(" ")[0]).slice(0, 20) } },
     inviteCode: code,
     settings: {
       paydayDay: clampPayday(paydayDay),
@@ -190,7 +190,7 @@ export async function createHousehold({ name, paydayDay, ownerName }) {
   await b.commit();
 }
 
-export async function joinHousehold(codeRaw) {
+export async function joinHousehold(codeRaw, nick = "") {
   const code = String(codeRaw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (code.length !== 8) throw new Error("Kode undangan harus 8 karakter.");
   const inv = await getDoc(doc(db, "invites", code));
@@ -205,6 +205,22 @@ export async function joinHousehold(codeRaw) {
   });
   b.set(doc(db, "users", u.uid), { householdId: hid, updatedAt: serverTimestamp() }, { merge: true });
   await b.commit();
+  // Setelah resmi jadi anggota: daftarkan nama panggilan ke kepemilikan
+  const n = (nick || memberInfo(u).name.split(" ")[0]).trim().slice(0, 20);
+  if (n) {
+    const b2 = writeBatch(db);
+    b2.update(doc(db, "households", hid), { [`memberInfo.${u.uid}.nick`]: n, "settings.owners": arrayUnion(n) });
+    await b2.commit().catch(err => console.warn("nick", err));
+  }
+}
+
+/** Ubah nama panggilan sendiri (juga ditambahkan ke daftar kepemilikan) */
+export async function setMyNick(nick) {
+  const n = String(nick || "").trim().slice(0, 20);
+  if (!n) throw new Error("Nama panggilan tidak boleh kosong.");
+  const b = writeBatch(db);
+  b.update(doc(db, "households", state.householdId), { [`memberInfo.${state.user.uid}.nick`]: n, "settings.owners": arrayUnion(n) });
+  return commit(b, "nama panggilan");
 }
 
 export async function regenerateInvite() {

@@ -36,9 +36,16 @@ const walletLabel = w => w ? (w.owner ? `${w.name} (${w.owner})` : w.name) : "(d
 const walletName = id => walletLabel(walletById(id));
 const walletOwner = id => walletById(id)?.owner || "";
 const balance = id => Number(state.household?.balances?.[id]) || 0;
-const owners = () => S().owners?.length ? S().owners : ["Saya"];
+const myNick = () => state.household?.memberInfo?.[state.user?.uid]?.nick || "";
+/** Kepemilikan = daftar di pengaturan + nama panggilan setiap anggota */
+const owners = () => {
+  const base = S().owners?.length ? S().owners : [];
+  const nicks = (state.household?.members || []).map(m => state.household?.memberInfo?.[m]?.nick).filter(Boolean);
+  const all = [...new Set([...base, ...nicks])];
+  return all.length ? all : ["Saya"];
+};
 const cats = type => (S().categories?.[type]?.length ? S().categories[type] : DEFAULT_CATEGORIES[type]);
-const memberName = u => state.household?.memberInfo?.[u]?.name || "Anggota";
+const memberName = u => { const i = state.household?.memberInfo?.[u]; return i?.nick || i?.name || "Anggota"; };
 const firstName = n => String(n || "").split(" ")[0];
 const isOwner = () => state.household?.ownerId === state.user?.uid;
 
@@ -174,6 +181,7 @@ function renderOnboard() {
       <div class="onboard-option">
         <h3>🔑 Gabung dengan kode undangan</h3>
         <p class="muted">Minta kode 8 karakter dari menu Akun di HP anggota keluarga.</p>
+        <div class="field"><label for="obNick">Nama panggilanmu</label><input class="input" id="obNick" value="${esc(firstName(name))}" maxlength="20" placeholder="Contoh: Ibun, Ayah"><span class="hint">Dipakai sebagai pemilik rekening & penanda siapa yang mencatat.</span></div>
         <div class="inline-add" style="margin-top:0"><input class="input" id="obCode" placeholder="Contoh: K7MP2QXA" maxlength="9" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.12em;font-weight:700"><button class="btn btn-primary" id="obJoin">Gabung</button></div>
       </div>
     </div>
@@ -184,7 +192,7 @@ function renderOnboard() {
     catch (err) { toast(friendlyError(err), "error", 6000); }
   });
   $("#obJoin").onclick = e => busy(e.currentTarget, async () => {
-    try { await D.joinHousehold($("#obCode").value); location.hash = "#/home"; toast("Berhasil bergabung 🎉", "success"); }
+    try { await D.joinHousehold($("#obCode").value, $("#obNick").value); location.hash = "#/home"; toast("Berhasil bergabung 🎉", "success"); }
     catch (err) { toast(friendlyError(err), "error", 6000); }
   });
   $("#obLogout").onclick = () => D.logout();
@@ -600,6 +608,7 @@ VIEWS.settings = {
       const act = a.dataset.s, arg = a.dataset.arg;
       const handlers = {
         hhName: () => textSheet("Nama rumah tangga", state.household.name, v => D.updateHousehold({ name: v })),
+        nick: () => textSheet("Nama panggilan saya", myNick() || firstName(state.user.displayName), v => D.setMyNick(v)),
         invite: () => inviteSheet(),
         member: () => memberSheet(arg),
         wallet: () => walletDetail(arg),
@@ -633,8 +642,9 @@ VIEWS.settings = {
           </div></div>
           <div class="set-group"><h3>Rumah tangga</h3><div class="set-list">
             ${item("hhName", "🏠", h.name, "Nama buku kas keluarga", "Ubah")}
+            ${item("nick", "🏷️", "Nama panggilan saya", "Untuk pemilik rekening & pencatat transaksi", esc(myNick() || "Atur"))}
             ${item("invite", "🔑", "Undang anggota", "Bagikan kode undangan", esc(h.inviteCode || ""))}
-            ${h.members.map(m => item("member", m === h.ownerId ? "👑" : "👤", memberName(m) + (m === u.uid ? " (kamu)" : ""), esc(h.memberInfo?.[m]?.email || ""), m === h.ownerId ? "Pemilik" : "Anggota", m)).join("")}
+            ${h.members.map(m => item("member", m === h.ownerId ? "👑" : "👤", memberName(m) + (m === u.uid ? " (kamu)" : ""), esc([h.memberInfo?.[m]?.nick ? h.memberInfo?.[m]?.name : "", h.memberInfo?.[m]?.email].filter(Boolean).join(" · ")), m === h.ownerId ? "Pemilik" : "Anggota", m)).join("")}
           </div></div>
           <div class="set-group"><h3>Dompet & rekening</h3><div class="set-list">
             ${activeWallets().map(w => item("wallet", walletIcon(w.type), w.name, esc(w.type) + " · " + esc(w.owner || "Bersama"), money(balance(w.id)), w.id)).join("")}
@@ -673,7 +683,7 @@ function trxForm(existing = null, presetType = "expense") {
   if (!ws.length) { toast("Tambah dompet terlebih dahulu.", "warn"); return walletSheet(); }
   if (existing?.type === "adjust") return toast("Penyesuaian saldo tidak bisa diubah, hapus lalu buat ulang.", "warn");
   const lastWallet = pref.get("lastWallet", ws[0].id);
-  const lastOwner = pref.get("lastOwner", owners()[0]);
+  const lastOwner = pref.get("lastOwner", myNick() || owners()[0]);
   const f = existing ? { ...existing } : { type: presetType, walletId: ws.some(w => w.id === lastWallet) ? lastWallet : ws[0].id, toWalletId: "", owner: lastOwner, toOwner: lastOwner, expenseType: "Rutin", date: new Date(), amount: 0, note: "", category: "" };
   const wsForSelect = existing ? allWallets().filter(w => !w.archived || w.id === existing.walletId || w.id === existing.toWalletId) : ws;
   const wOpts = sel => wsForSelect.map(w => `<option value="${esc(w.id)}" ${w.id === sel ? "selected" : ""}>${walletIcon(w.type)} ${esc(w.name)}${w.owner ? ` (${esc(w.owner)})` : ""}</option>`).join("");
@@ -814,13 +824,13 @@ function walletSheet(w = null) {
     body: `
       <div class="field"><span class="field-label">Jenis</span><div class="chips" id="wsType">${types.map(t => `<button type="button" class="chip ${(w?.type || "Bank") === t ? "active" : ""}" data-t="${t}">${WALLET_TYPES[t]} ${t}</button>`).join("")}</div></div>
       <div class="field"><label for="wsName">Nama</label><input class="input" id="wsName" maxlength="30" placeholder="Contoh: BTN, GoPay, Mandiri" value="${esc(w?.name || "")}" autofocus></div>
-      <div class="field"><span class="field-label">Pemilik rekening</span><div class="chips" id="wsOwner" style="flex-wrap:wrap">${["", ...owners()].map(o => `<button type="button" class="chip ${(w?.owner || "") === o ? "active" : ""}" data-o="${esc(o)}">${o ? "👤 " + esc(o) : "👥 Bersama"}</button>`).join("")}</div>
+      <div class="field"><span class="field-label">Pemilik rekening</span><div class="chips" id="wsOwner" style="flex-wrap:wrap">${["", ...owners()].map(o => `<button type="button" class="chip ${(w ? (w.owner || "") : myNick()) === o ? "active" : ""}" data-o="${esc(o)}">${o ? "👤 " + esc(o) : "👥 Bersama"}</button>`).join("")}</div>
         <span class="hint">Transaksi dari rekening ini otomatis tercatat milik pemiliknya. Pilih "Bersama" untuk dompet/rekening keluarga.</span></div>
       ${w ? "" : `<div class="field"><label for="wsBal">Saldo saat ini</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="wsBal" inputmode="numeric" placeholder="0" style="font-size:22px;min-height:54px"></div><span class="hint">Dicatat sebagai penyesuaian saldo (tidak dihitung sebagai pemasukan).</span></div>`}
       <button class="btn btn-primary btn-block" id="wsSave">Simpan</button>`,
   });
   let type = w?.type || "Bank";
-  let owner = w?.owner || "";
+  let owner = w ? (w.owner || "") : myNick();
   s.$("#wsOwner").onclick = e => { const b = e.target.closest("[data-o]"); if (!b) return; owner = b.dataset.o; s.$$("#wsOwner .chip").forEach(c => c.classList.toggle("active", c === b)); };
   s.$("#wsType").onclick = e => { const b = e.target.closest("[data-t]"); if (!b) return; type = b.dataset.t; s.$$("#wsType .chip").forEach(c => c.classList.toggle("active", c === b)); };
   s.$("#wsBal")?.addEventListener("input", e => { e.target.value = formatNominalInput(e.target.value); });
