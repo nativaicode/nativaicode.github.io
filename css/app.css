@@ -231,6 +231,7 @@ a:has(> .avatar) { text-decoration: none; }
 }
 .wallet-chip .w-ico { font-size: 20px; }
 .wallet-chip .w-name { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wallet-chip .w-owner { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 0 6px; border-radius: 6px; background: var(--primary-soft); color: var(--primary); margin-left: 2px; }
 .wallet-chip .w-bal { font-weight: 800; font-size: 15px; white-space: nowrap; }
 .wallet-chip .w-bal.neg { color: var(--expense); }
 
@@ -439,6 +440,17 @@ button.set-item:hover { background: var(--surface-2); }
 @keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
+/* ─── Insight ─── */
+.insights { display: grid; gap: 10px; }
+.insight { display: grid; grid-template-columns: 36px 1fr; gap: 12px; padding: 12px; border-radius: 14px; background: var(--surface-2); border-left: 4px solid var(--border); }
+.insight .in-ico { width: 36px; height: 36px; border-radius: 11px; background: var(--surface); display: grid; place-items: center; font-size: 18px; }
+.insight .in-title { font-weight: 700; font-size: 14px; }
+.insight .in-text { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.insight.lv-bad { border-left-color: var(--expense); background: var(--expense-soft); }
+.insight.lv-warn { border-left-color: #f59e0b; background: var(--warn-soft); }
+.insight.lv-good { border-left-color: var(--income); background: var(--income-soft); }
+.insight.lv-info { border-left-color: var(--primary); }
+
 /* ─── Override desktop (ditaruh paling akhir agar tidak tertimpa) ─── */
 @media (min-width: 900px) {
   .main { max-width: 1320px; }
@@ -449,5 +461,5 @@ button.set-item:hover { background: var(--surface-2); }
 /* Urutan kartu Beranda di HP: saldo → dompet → budget → transaksi → kategori */
 @media (max-width: 899px) {
   .grid-home > .grid { display: contents; }
-  .o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; } .o5 { order: 5; }
+  .o1 { order: 1; } .o2b { order: 2; } .o2 { order: 3; } .o3 { order: 4; } .o4 { order: 5; } .o5 { order: 6; }
 }
