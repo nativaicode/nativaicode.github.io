@@ -13,6 +13,9 @@ import { setupLock, lockSettingsSheet, lockConfigured } from "./lock.js";
 import { shareReport } from "./report.js";
 import { pushSupported, enableDailyReminder, disableDailyReminder, dailyReminderOn, saveMemberNotif } from "./push.js";
 import { passesMemberPref, buildActivityMessage } from "./reminder-logic.js";
+import { parseUtterance, parseReceipt, guessCategory, memoryKeys } from "./nlp.js";
+import { voiceSupported, listenOnce } from "./voice.js";
+import { compressImage, dataUrlKB } from "./image.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const appEl = document.getElementById("app");
@@ -82,7 +85,7 @@ function trxRow(t) {
   return `<button class="trx-item" data-trx="${esc(t.id)}">
     <div class="trx-ico ${t.type}">${trxIcon(t)}</div>
     <div class="trx-main">
-      <div class="trx-title">${esc(trxTitle(t))}${t.expenseType === "Tetap" ? '<span class="tag tetap">Tetap</span>' : ""}</div>
+      <div class="trx-title">${esc(trxTitle(t))}${t.expenseType === "Tetap" ? '<span class="tag tetap">Tetap</span>' : ""}${t.hasProof ? '<span class="tag">📎</span>' : ""}</div>
       <div class="trx-sub">${fmtTime(t.date)}${sub.length ? " · " + esc(sub.join(" · ")) : ""}</div>
     </div>
     ${trxAmount(t)}
@@ -860,6 +863,12 @@ function trxForm(existing = null, presetType = "expense") {
       <div class="seg t-${f.type}" id="fType" ${existing ? 'style="pointer-events:none;opacity:.7"' : ""}>
         <button data-t="expense">Pengeluaran</button><button data-t="income">Pemasukan</button><button data-t="transfer">Pindah Dana</button>
       </div>
+      ${existing ? "" : `<div class="quick-input">
+        <button type="button" class="btn btn-ghost btn-sm" id="fVoice">🎙️ Ucapkan</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="fScan">📷 Scan struk</button>
+        <input type="file" id="fScanFile" accept="image/*" capture="environment" hidden>
+      </div>
+      <div class="quick-hint hidden" id="fQuickHint"></div>`}
       <div class="chips tpl-chips" id="fTpl"></div>
       <div class="field"><label for="fAmt">Nominal</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="fAmt" inputmode="numeric" autocomplete="off" placeholder="0" value="${f.amount ? formatNominalInput(f.amount) : ""}" autofocus></div></div>
       <div id="fDyn"></div>
@@ -869,6 +878,11 @@ function trxForm(existing = null, presetType = "expense") {
       </div>
       <div class="hint hidden" id="fOwnerAuto" style="margin:-6px 0 14px"></div>
       <div class="field"><label for="fNote">Catatan (opsional)</label><input class="input" id="fNote" maxlength="300" placeholder="Contoh: belanja mingguan" value="${esc(f.note || "")}"></div>
+      <div class="field"><span class="field-label">Bukti transaksi (opsional)</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="fProofAdd">📎 Lampirkan foto bukti / struk</button>
+        <input type="file" id="fProofFile" accept="image/*" hidden>
+        <div class="proof-prev hidden" id="fProofPrev"><img id="fProofImg" alt="Bukti transaksi"><div class="proof-meta"><small id="fProofInfo"></small><button type="button" class="link-btn" id="fProofChange">Ganti</button><button type="button" class="link-btn" id="fProofDel" style="color:var(--expense)">Hapus</button></div></div>
+      </div>
       <button class="btn btn-primary btn-block" id="fSave">${existing ? "Simpan perubahan" : "Simpan"}</button>
       ${existing ? "" : `<button class="link-btn" id="fSaveTpl" style="display:block;margin:12px auto 0">☆ Simpan sebagai template catat cepat</button>`}`,
     onMount(api) {
@@ -896,7 +910,7 @@ function trxForm(existing = null, presetType = "expense") {
               <button type="button" data-et="Rutin" class="${f.expenseType !== "Tetap" ? "active" : ""}"><b>🔄 Rutin</b><small>Masuk hitungan budget</small></button>
               <button type="button" data-et="Tetap" class="${f.expenseType === "Tetap" ? "active" : ""}"><b>📌 Tetap</b><small>Cicilan, SPP, dll — di luar budget</small></button></div></div>` : ""}
             <div class="field"><label for="fW">${f.type === "income" ? "Masuk ke" : "Dibayar dari"}</label><select class="input select" id="fW">${wOpts(f.walletId)}</select></div>`;
-          api.$("#fCats").onclick = e => { const b = e.target.closest("[data-c]"); if (!b) return; f.category = b.dataset.c; api.$$("#fCats .cat-btn").forEach(x => x.classList.toggle("active", x === b)); };
+          api.$("#fCats").onclick = e => { const b = e.target.closest("[data-c]"); if (!b) return; f.category = b.dataset.c; f.catManual = true; api.$$("#fCats .cat-btn").forEach(x => x.classList.toggle("active", x === b)); };
           api.$("#fET")?.addEventListener("click", e => { const b = e.target.closest("[data-et]"); if (!b) return; f.expenseType = b.dataset.et; api.$$("#fET button").forEach(x => x.classList.toggle("active", x === b)); });
         }
         api.$("#fW").onchange = e => { f.walletId = e.target.value; };
@@ -947,6 +961,85 @@ function trxForm(existing = null, presetType = "expense") {
         });
       });
       api.$("#fType").onclick = e => { const b = e.target.closest("[data-t]"); if (!b) return; f.type = b.dataset.t; drawDyn(); };
+
+      /* ─── Kategori otomatis dari catatan ─── */
+      f.catManual = !!existing;
+      const memory = () => state.household?.catMemory || {};
+      const autoCat = text => {
+        if (f.catManual || f.type === "transfer") return;
+        const g = guessCategory(text, f.type, cats(f.type), memory());
+        if (g && g !== f.category) { f.category = g; drawDyn(); api.$("#fCats .cat-btn.active")?.classList.add("auto"); }
+      };
+      api.$("#fNote").addEventListener("input", e => autoCat(e.target.value));
+
+      /* ─── Isi form dari suara / struk ─── */
+      const hint = (html, show = true) => { const h = api.$("#fQuickHint"); if (!h) return; h.innerHTML = html; h.classList.toggle("hidden", !show); };
+      const apply = p => {
+        if (p.type && p.type !== f.type) f.type = p.type;
+        if (p.walletId) f.walletId = p.walletId;
+        if (p.toWalletId) f.toWalletId = p.toWalletId;
+        if (p.category) { f.category = p.category; f.catManual = false; }
+        drawDyn();
+        if (p.amount) api.$("#fAmt").value = formatNominalInput(p.amount);
+        if (p.note) api.$("#fNote").value = p.note;
+        if (p.date) api.$("#fDate").value = toLocalInput(p.date);
+        if (!p.category && p.note) autoCat(p.note);
+        if (p.category) api.$("#fCats .cat-btn.active")?.classList.add("auto");
+      };
+      /* ─── Bukti transaksi ─── */
+      let proof; // undefined = tidak berubah, null = dihapus, string = foto baru
+      const showProof = (url, info) => {
+        api.$("#fProofPrev").classList.toggle("hidden", !url);
+        api.$("#fProofAdd").classList.toggle("hidden", !!url);
+        if (url) { api.$("#fProofImg").src = url; api.$("#fProofInfo").textContent = info || ""; }
+      };
+      if (existing?.hasProof) D.getProof(existing.id).then(u => u && proof === undefined && showProof(u, "Bukti tersimpan")).catch(() => {});
+      const pickProof = () => api.$("#fProofFile").click();
+      api.$("#fProofAdd").onclick = pickProof; api.$("#fProofChange").onclick = pickProof;
+      api.$("#fProofDel").onclick = () => { proof = null; showProof(null); };
+      const attachFile = async (file, info) => {
+        const url = await compressImage(file);
+        proof = url; showProof(url, `${info || "Foto dilampirkan"} · ${dataUrlKB(url)} KB`);
+      };
+      api.$("#fProofFile").onchange = async e => {
+        const file = e.target.files?.[0]; e.target.value = "";
+        if (!file) return;
+        try { await attachFile(file); } catch (err) { toast(err.message || "Gagal memproses foto.", "error"); }
+      };
+
+      api.$("#fVoice")?.addEventListener("click", async e => {
+        const btn = e.currentTarget;
+        if (btn.classList.contains("rec")) return listenOnce.stop?.();
+        if (!voiceSupported()) return toast("Browser ini belum mendukung input suara. Gunakan Chrome (Android) atau Safari (iPhone).", "warn", 6000);
+        btn.classList.add("rec"); btn.textContent = "⏹ Selesai";
+        hint(`🎙️ <i>Contoh: “belanja pasar seratus lima puluh ribu pakai BTN Ibun”</i>`);
+        try {
+          const text = await listenOnce({ onPartial: t => hint(`🎙️ “${esc(t)}”`) });
+          if (!text) { hint("", false); return; }
+          const p = parseUtterance(text, { wallets: activeWallets(), cats: { expense: cats("expense"), income: cats("income") }, memory: memory() });
+          apply(p);
+          hint(`🎙️ “${esc(text)}”${p.amount ? "" : " — <b>nominal tidak terdengar, isi manual</b>"}`);
+        } catch (err) { hint("", false); toast(err.message, "warn", 6000); }
+        finally { btn.classList.remove("rec"); btn.textContent = "🎙️ Ucapkan"; }
+      });
+      api.$("#fScan")?.addEventListener("click", () => api.$("#fScanFile").click());
+      api.$("#fScanFile")?.addEventListener("change", async e => {
+        const file = e.target.files?.[0]; e.target.value = "";
+        if (!file) return;
+        const btn = api.$("#fScan"); btn.disabled = true;
+        hint(`📷 Menyiapkan… <span class="ocr-bar"><i style="width:0%"></i></span>`);
+        try {
+          const { recognizeReceipt } = await import("./ocr.js");
+          const text = await recognizeReceipt(file, (p, lbl) => hint(`📷 ${esc(lbl)} <span class="ocr-bar"><i style="width:${Math.round(p * 100)}%"></i></span>`));
+          const r = parseReceipt(text);
+          if (!proof) attachFile(file, "Struk dilampirkan sebagai bukti").catch(() => {});
+          if (f.type !== "expense") f.type = "expense";
+          const category = guessCategory(r.merchant + " " + text.slice(0, 300), "expense", cats("expense"), memory());
+          apply({ type: "expense", amount: r.total, date: r.date, note: r.merchant ? r.merchant.charAt(0) + r.merchant.slice(1).toLowerCase() : "", category });
+          hint(r.total ? `📷 Terbaca: <b>${esc(rupiah(r.total))}</b>${r.merchant ? " · " + esc(r.merchant) : ""}${r.date ? " · " + esc(fmtDate(r.date, true)) : ""}. Periksa lagi sebelum simpan.` : "📷 Total tidak terbaca jelas — isi nominal manual. Tips: foto lurus, terang, struk memenuhi layar.");
+        } catch (err) { hint("", false); toast("Gagal membaca struk: " + (err?.message || err), "error", 6000); }
+        finally { btn.disabled = false; }
+      });
       const amt = api.$("#fAmt");
       amt.oninput = () => { const pos = amt.value.length - amt.selectionStart; amt.value = formatNominalInput(amt.value); const p = Math.max(0, amt.value.length - pos); amt.setSelectionRange(p, p); };
       api.$("#fSave").onclick = e => busy(e.currentTarget, async () => {
@@ -960,7 +1053,13 @@ function trxForm(existing = null, presetType = "expense") {
         if (f.type !== "transfer" && !f.category) return toast("Pilih kategori.", "warn");
         if (f.type === "transfer" && (!f.toWalletId || f.toWalletId === f.walletId)) return toast("Dompet asal dan tujuan harus berbeda.", "warn");
         try {
-          const r = existing ? await D.updateTransaction(existing, f) : await D.addTransaction(f);
+          const r = existing ? await D.updateTransaction(existing, f, proof) : await D.addTransaction(f, proof || null);
+          // Belajar: catatan → kategori (untuk saran berikutnya)
+          if (f.note && f.category && f.type !== "transfer") {
+            const mem = state.household?.catMemory || {};
+            const keys = memoryKeys(f.note).filter(k => mem[k] !== f.category);
+            if (keys.length) D.learnCategory(keys, f.category).catch(() => {});
+          }
           pref.set("lastWallet", f.walletId); pref.set("lastOwner", f.owner);
           api.close();
           toast(r.offline ? "Tersimpan di perangkat — akan tersinkron saat online" : existing ? "Perubahan disimpan ✓" : `${TYPE_LABEL[f.type]} ${rupiah(f.amount)} tersimpan ✓`, r.offline ? "warn" : "success");
@@ -991,17 +1090,30 @@ function trxDetail(t) {
       <div class="detail-amount"><div class="trx-ico ${t.type}" style="margin:0 auto 10px;width:56px;height:56px;font-size:26px">${trxIcon(t)}</div>
         <div class="big trx-amt ${sign}">${t.type === "expense" ? money(-t.amount) : money(t.amount, { sign: t.type !== "transfer" })}</div></div>
       <div class="kv">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      ${t.hasProof ? `<div class="field-label" style="margin-bottom:6px">📎 Bukti transaksi</div><button type="button" class="proof-view" id="dProof"><div class="skeleton" style="height:140px"></div></button>` : ""}
       <div class="btn-row">
         <button class="btn btn-danger" id="dDel">${icon("trash")} Hapus</button>
         ${t.type !== "adjust" ? `<button class="btn btn-primary" id="dEdit">${icon("edit")} Ubah</button>` : ""}
       </div>`,
   });
   s.$("#dEdit")?.addEventListener("click", () => { s.close(); trxForm(t); });
+  if (t.hasProof) D.getProof(t.id).then(url => {
+    const box = s.$("#dProof"); if (!box) return;
+    if (!url) { box.innerHTML = `<span class="muted">Bukti tidak ditemukan.</span>`; return; }
+    box.innerHTML = `<img src="${url}" alt="Bukti transaksi">`;
+    box.onclick = () => proofViewer(url, `Bukti_${trxTitle(t)}_${fmtDate(t.date)}`);
+  }).catch(err => { const box = s.$("#dProof"); if (box) box.innerHTML = `<span class="muted">${esc(friendlyError(err))}</span>`; });
   s.$("#dDel").onclick = async () => {
     if (!(await confirmDialog({ title: "Hapus transaksi?", message: `${trxTitle(t)} — ${rupiah(t.amount)}. Saldo dompet akan disesuaikan otomatis.`, okText: "Hapus", danger: true }))) return;
     try { const r = await D.deleteTransaction(t); s.close(); toast(r.offline ? "Dihapus (menunggu sinkron)" : "Transaksi dihapus", "success"); }
     catch (err) { toast(friendlyError(err), "error"); }
   };
+}
+
+function proofViewer(url, name) {
+  const v = openSheet({ title: "Bukti transaksi", wide: true, body: `<div class="proof-full"><img src="${url}" alt="Bukti transaksi"></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" id="pvDl">${icon("download")} Simpan foto</button></div>` });
+  v.$("#pvDl").onclick = () => { const a = document.createElement("a"); a.href = url; a.download = name.replace(/[^\w-]+/g, "_") + ".jpg"; document.body.appendChild(a); a.click(); a.remove(); };
 }
 
 /* ─── Dompet ─── */
@@ -1222,7 +1334,7 @@ function exportSheet() {
         Tanggal: fmtDate(t.date), Jam: fmtTime(t.date), Jenis: TYPE_LABEL[t.type], Kategori: t.category || "",
         "Tipe Pengeluaran": t.expenseType || "", Dompet: walletName(t.walletId), "Ke Dompet": t.toWalletId ? walletName(t.toWalletId) : "",
         Milik: t.owner || "", "Ke Milik": t.type === "transfer" ? (t.toOwner || "") : "",
-        Nominal: t.type === "expense" ? -t.amount : t.amount, Catatan: t.note || "", "Dicatat oleh": memberName(t.createdBy),
+        Nominal: t.type === "expense" ? -t.amount : t.amount, Catatan: t.note || "", Bukti: t.hasProof ? "Ada" : "", "Dicatat oleh": memberName(t.createdBy),
       }));
       const wb = XLSX.utils.book_new();
       const ws1 = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Info: "Tidak ada transaksi" }]);

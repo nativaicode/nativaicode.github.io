@@ -476,6 +476,25 @@ button.set-item:hover { background: var(--surface-2); }
 .cb-row .input { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
 .toast-action { border: 0; background: rgba(255,255,255,.2); color: inherit; font-weight: 800; border-radius: 8px; padding: 4px 10px; flex: none; }
 
+/* ─── Input cepat: suara & scan struk ─── */
+.quick-input { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.quick-input .btn { min-height: 42px; }
+.quick-input .btn.rec { background: var(--expense-soft); color: var(--expense); border-color: var(--expense); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--expense) 18%, transparent); } }
+.quick-hint { font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.ocr-bar { display: block; height: 6px; background: var(--border); border-radius: 9px; overflow: hidden; margin-top: 6px; }
+.ocr-bar i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+.cat-btn.auto::after { content: "otomatis"; font-size: 9.5px; font-weight: 700; color: var(--primary); }
+
+/* ─── Bukti transaksi ─── */
+.proof-prev { display: grid; grid-template-columns: 84px 1fr; gap: 12px; align-items: center; background: var(--surface-2); border-radius: 14px; padding: 8px; }
+.proof-prev img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; background: var(--surface); }
+.proof-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.proof-meta small { width: 100%; color: var(--muted); }
+.proof-view { display: block; width: 100%; padding: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); margin-bottom: 16px; cursor: zoom-in; }
+.proof-view img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
+.proof-full img { display: block; width: 100%; height: auto; border-radius: 12px; }
+
 /* ─── Kunci aplikasi ─── */
 #lockRoot { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: grid; place-items: center; padding: 24px; }
 .lock-box { width: 100%; max-width: 340px; text-align: center; }

@@ -312,22 +312,40 @@ function cleanTrx(t) {
   if (t.type === "transfer") { out.toWalletId = t.toWalletId; out.owner = t.owner || ""; out.toOwner = t.toOwner || t.owner || ""; }
   if (t.type === "adjust") out.category = t.category || "Penyesuaian Saldo";
   for (const k of ["billId", "billKey", "debtId"]) if (t[k]) out[k] = t[k];
+  if (t.hasProof) out.hasProof = true;
   return out;
 }
 
-export async function addTransaction(t) {
-  const data = cleanTrx(t);
+/* ─── Bukti transaksi (foto terkompresi, disimpan terpisah agar daftar transaksi tetap ringan) ─── */
+const proofRef = id => doc(db, "households", state.householdId, "attachments", id);
+function setProof(b, trxId, dataUrl) {
+  b.set(proofRef(trxId), { data: dataUrl, size: dataUrl.length, createdBy: state.user.uid, createdAt: serverTimestamp() });
+}
+export async function getProof(trxId) {
+  const s = await getDoc(proofRef(trxId));
+  return s.exists() ? s.data().data : null;
+}
+
+/** proof: dataURL foto bukti (opsional) */
+export async function addTransaction(t, proof = null) {
+  const data = cleanTrx({ ...t, hasProof: !!proof });
   const ref = doc(collection(db, "households", state.householdId, "transactions"));
   const b = writeBatch(db);
+  if (proof) setProof(b, ref.id, proof);
   b.set(ref, { ...data, createdBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   applyBalances(b, balanceEffects(data));
   touchPast(t.date);
   return commit(b, "tambah transaksi");
 }
 
-export async function updateTransaction(oldT, t) {
-  const data = cleanTrx(t);
+/** proof: undefined = tidak berubah, null = hapus, string = ganti */
+export async function updateTransaction(oldT, t, proof) {
+  const has = proof === undefined ? !!oldT.hasProof : !!proof;
+  const data = cleanTrx({ ...t, hasProof: has });
   const b = writeBatch(db);
+  if (proof) setProof(b, oldT.id, proof);
+  else if (proof === null && oldT.hasProof) b.delete(proofRef(oldT.id));
+  if (!has) data.hasProof = deleteField();
   b.update(doc(db, "households", state.householdId, "transactions", oldT.id), { ...data, updatedBy: state.user.uid, updatedAt: serverTimestamp() });
   applyBalances(b, diffEffects(oldT, data));
   touchPast(oldT.date, t.date);
@@ -337,6 +355,7 @@ export async function updateTransaction(oldT, t) {
 export async function deleteTransaction(oldT) {
   const b = writeBatch(db);
   b.delete(doc(db, "households", state.householdId, "transactions", oldT.id));
+  if (oldT.hasProof) b.delete(proofRef(oldT.id));
   // transaksi pembayaran tagihan dihapus → tandai tagihan belum dibayar lagi
   if (oldT.billId && oldT.billKey && state.bills.some(x => x.id === oldT.billId)) b.update(doc(db, "households", state.householdId, "bills", oldT.billId), { [`paid.${oldT.billKey}`]: deleteField() });
   applyBalances(b, diffEffects(oldT, null));
@@ -493,6 +512,14 @@ export async function debtPayment(debt, amount, walletId) {
 /* ─── Budget per kategori & template catat cepat (di dokumen rumah tangga) ─── */
 export const setCatBudgets = map => updateHousehold({ catBudgets: map });
 export const setTemplates = list => updateSettings("templates", list);
+/** Ingat kata kunci catatan → kategori (maks. ±400 kunci) */
+export async function learnCategory(keys, category) {
+  const mem = state.household?.catMemory || {};
+  const patch = {};
+  for (const k of keys) if (k && k.length <= 40 && (k in mem || Object.keys(mem).length < 400)) patch[`catMemory.${k}`] = category;
+  if (!Object.keys(patch).length) return { offline: false };
+  return updateHousehold(patch);
+}
 
 /* ─── Token notifikasi harian (FCM) ─── */
 export async function saveReminderToken(token, on = true) {

@@ -92,6 +92,13 @@ service cloud.firestore {
           && request.resource.data.kind in ['utang', 'piutang'];
       }
 
+      // ── Bukti transaksi (foto terkompresi, maks. ±1 MB) ──
+      match /attachments/{trxId} {
+        allow read, delete: if isMember(hid);
+        allow create, update: if isMember(hid) && request.resource.data.data is string
+          && request.resource.data.data.size() < 1000000;
+      }
+
       // ── Budget per periode ──
       match /budgets/{periodKey} {
         allow read: if isMember(hid);
