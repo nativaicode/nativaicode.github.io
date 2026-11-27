@@ -608,17 +608,22 @@ VIEWS.history = {
         <div class="topbar-actions">${avatarLink()}<button class="btn btn-ghost btn-sm" id="hsExport">${icon("download")} <span class="hide-mobile">Export</span> Excel</button></div></div>
       <div id="hsOffline"></div>
       ${periodNav("pn")}
-      <div class="seg seg-mode" id="hsMode"><button data-mode="list" class="${hf.mode === "list" ? "active" : ""}">📋 Daftar</button><button data-mode="cal" class="${hf.mode === "cal" ? "active" : ""}">📅 Kalender</button></div>
+      <div class="seg seg-mode" id="hsMode" role="tablist"><button role="tab" data-mode="list" class="${hf.mode === "list" ? "active" : ""}">${icon("list")} Daftar</button><button role="tab" data-mode="cal" class="${hf.mode === "cal" ? "active" : ""}">📅 Kalender</button></div>
       <div class="toolbar">
-        <div class="search">${icon("search")}<input class="input" id="hsQ" type="search" placeholder="Cari catatan, kategori, nominal…" value="${esc(hf.q)}"></div>
+        <div class="tb-row">
+          <div class="search">${icon("search")}<input class="input" id="hsQ" type="search" placeholder="Cari catatan, barang, nominal…" value="${esc(hf.q)}"></div>
+          <button class="icon-btn tb-filter" id="hsFilterBtn" aria-expanded="false" aria-label="Filter dompet & kategori">${icon("filter")}<i class="tb-badge hidden" id="hsFilterBadge"></i></button>
+        </div>
         <div class="chips" id="hsType">${[["all", "Semua"], ["expense", "Keluar"], ["income", "Masuk"], ["transfer", "Transfer"]].map(([k, l]) => `<button class="chip ${hf.type === k ? "active" : ""}" data-type="${k}">${l}</button>`).join("")}</div>
-        <select class="input select" id="hsWallet"></select>
-        <select class="input select" id="hsCat"></select>
+        <div class="tb-filters ${hf.wallet || hf.cat ? "" : "collapsed"}" id="hsFilters">
+          <select class="input select" id="hsWallet" aria-label="Dompet"></select>
+          <select class="input select" id="hsCat" aria-label="Kategori"></select>
+        </div>
       </div>
-      <div class="sum-row" id="hsSum"></div>
+      <div class="sum-row ${hf.mode === "cal" ? "hidden" : ""}" id="hsSum"></div>
       <section class="card ${hf.mode === "cal" ? "hidden" : ""}" id="hsListCard" style="padding:8px 10px"><div id="hsList"></div></section>
       <div class="cal-layout ${hf.mode === "cal" ? "" : "hidden"}" id="hsCalWrap">
-        <section class="card cal-card"><div class="cal-stats" id="hsCalStats"></div><div id="hsCal"></div><div class="cal-legend" id="hsCalLegend"></div></section>
+        <section class="card cal-card"><div class="cal-top" id="hsCalTop"></div><div class="cal-stats" id="hsCalStats"></div><div id="hsCal"></div><div class="cal-legend" id="hsCalLegend"></div></section>
         <div class="grid cal-side"><section class="card" id="hsDay"></section><section class="card hidden" id="hsDow"></section></div>
       </div>`;
     bindPeriodNav(el);
@@ -627,6 +632,7 @@ VIEWS.history = {
       hf.mode = b.dataset.mode; pref.set("histMode", hf.mode);
       el.querySelectorAll("#hsMode button").forEach(x => x.classList.toggle("active", x === b));
       $("#hsListCard", el).classList.toggle("hidden", hf.mode === "cal");
+      $("#hsSum", el).classList.toggle("hidden", hf.mode === "cal");
       $("#hsCalWrap", el).classList.toggle("hidden", hf.mode !== "cal");
       this.list(el);
     };
@@ -640,8 +646,11 @@ VIEWS.history = {
     });
     $("#hsQ", el).oninput = e => { hf.q = e.target.value; this.list(el); };
     $("#hsType", el).onclick = e => { const b = e.target.closest("[data-type]"); if (!b) return; hf.type = b.dataset.type; el.querySelectorAll("#hsType .chip").forEach(c => c.classList.toggle("active", c === b)); this.list(el); };
-    $("#hsWallet", el).onchange = e => { hf.wallet = e.target.value; this.list(el); };
-    $("#hsCat", el).onchange = e => { hf.cat = e.target.value; this.list(el); };
+    const badge = () => { const n = (hf.wallet ? 1 : 0) + (hf.cat ? 1 : 0); const b = $("#hsFilterBadge", el); b.textContent = n; b.classList.toggle("hidden", !n); };
+    $("#hsFilterBtn", el).onclick = e => { const f = $("#hsFilters", el); const open = f.classList.toggle("collapsed") === false; e.currentTarget.setAttribute("aria-expanded", open); e.currentTarget.classList.toggle("on", open); };
+    $("#hsWallet", el).onchange = e => { hf.wallet = e.target.value; badge(); this.list(el); };
+    $("#hsCat", el).onchange = e => { hf.cat = e.target.value; badge(); this.list(el); };
+    badge();
     $("#hsExport", el).onclick = () => exportSheet();
   },
   update(el) {
@@ -698,15 +707,23 @@ function renderCalendar(el, list) {
   const dayShort = c => `${WEEKDAY_SHORT[c.dow]} ${c.day} ${BULAN[c.date.getMonth()]}`;
 
   // ringkasan
+  // kepala kartu: total periode
+  const sAll = summarize(list);
+  const headVal = metric === "income" ? sAll.income : metric === "transfer" ? st.total : sAll.expense;
+  const pctB = budget ? Math.round((st.total - st.tetapTotal) / budget * 100) : 0;
+  $("#hsCalTop", el).innerHTML = `
+    <div><small>${esc(word[0])} periode ini</small><div class="cal-total num${blur}" style="color:var(--${metric === "income" ? "income" : metric === "transfer" ? "transfer" : "expense"})">${esc(rupiah(headVal))}</div>
+      ${metric === "expense" ? `<small class="faint">Masuk ${money(sAll.income)} · Selisih ${money(sAll.income - sAll.expense)}</small>` : ""}</div>
+    ${budget ? `<div class="cal-ring" style="--p:${Math.min(100, pctB)}" title="Budget rutin terpakai"><b>${pctB}%</b><small>budget</small></div>` : ""}`;
   const boxes = [
-    [`Rata-rata/hari`, money(st.avg), `${st.elapsed} hari${st.tetapTotal ? " · di luar Tetap" : " berjalan"}`],
-    [word[1], `<span class="num">${st.noSpend} hari</span>`, st.elapsed ? `dari ${st.elapsed} hari` : ""],
-    [word[2], st.maxDay ? money(st.maxDay.rutin) : "—", st.maxDay ? dayShort(st.maxDay) : ""],
+    ["📊", "Rata-rata/hari", money(st.avg), st.tetapTotal ? "di luar Tetap" : `${st.elapsed} hari berjalan`],
+    ["🌿", word[1], `<span class="num">${st.noSpend}</span> <span class="unit">hari</span>`, st.elapsed ? `dari ${st.elapsed} hari` : ""],
+    ["🔥", word[2], st.maxDay ? money(st.maxDay.rutin) : "—", st.maxDay ? dayShort(st.maxDay) : ""],
   ];
-  if (budget && current) boxes.push(["Jatah tersisa/hari", money(st.perDayLeft), `${st.daysLeft} hari lagi`]);
-  else if (budget) boxes.push(["Lewat jatah harian", `<span class="num">${st.overAllowance} hari</span>`, `jatah ${rupiah(st.allowance)}`]);
-  else if (st.weekendDays && st.weekdayDays) boxes.push(["Akhir pekan/hari", money(st.weekendAvg), `hari kerja ${rupiah(st.weekdayAvg)}`]);
-  $("#hsCalStats", el).innerHTML = boxes.map(([l, v, sub]) => `<div class="sum-box"><small>${esc(l)}</small><b>${v}</b>${sub ? `<small class="faint">${esc(sub)}</small>` : ""}</div>`).join("");
+  if (budget && current) boxes.unshift(["🎯", "Jatah/hari tersisa", money(st.perDayLeft), `${st.daysLeft} hari lagi`]);
+  else if (budget) boxes.push(["⚠️", "Lewat jatah", `<span class="num">${st.overAllowance}</span> <span class="unit">hari</span>`, `jatah ${rupiah(st.allowance)}`]);
+  else if (st.weekendDays && st.weekdayDays) boxes.push(["🛍️", "Akhir pekan/hari", money(st.weekendAvg), `hari kerja ${rupiah(st.weekdayAvg)}`]);
+  $("#hsCalStats", el).innerHTML = boxes.map(([ic, l, v, sub], i) => `<div class="stat-tile${i === 0 && budget && current ? " accent" : ""}"><span class="st-ic">${ic}</span><small>${esc(l)}</small><b>${v}</b>${sub ? `<em>${esc(sub)}</em>` : ""}</div>`).join("");
 
   // grid
   const order = [0, 1, 2, 3, 4, 5, 6];
@@ -733,14 +750,21 @@ function renderCalendar(el, list) {
     : st.ref ? `Warna = ${subj} dibanding hari biasa (${rupiah(st.ref)}).` : "";
   const tetapTxt = st.tetapTotal ? ` Pengeluaran Tetap (${rupiah(st.tetapTotal)}) tidak ikut diwarnai.` : "";
   $("#hsCalLegend", el).innerHTML = `
-    <div class="cal-scale m-${metric}"><span>Ringan</span><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>Berat</span></div>
-    <div class="cal-keys"><span><i class="mk inc"></i>Pemasukan</span>${metric === "expense" ? `<span><i class="mk bill"></i>Tagihan</span>` : ""}${metric !== "transfer" ? `<span><i class="mk debt"></i>Utang/piutang</span>` : ""}${st.tetapTotal ? `<span><i class="mk tetap"></i>Tetap</span>` : ""}</div>
-    ${refTxt ? `<div class="hint">${esc(refTxt + tetapTxt)}</div>` : ""}`;
+    <div class="cal-legend-row">
+      <div class="cal-scale m-${metric}"><span>Hemat</span><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>Boros</span></div>
+      <div class="cal-keys">${metric !== "income" ? `<span><i class="mk inc"></i>Masuk</span>` : ""}${metric === "expense" ? `<span><i class="mk bill"></i>Tagihan</span>` : ""}${metric !== "transfer" && state.debts.length ? `<span><i class="mk debt"></i>Utang</span>` : ""}${st.tetapTotal ? `<span><i class="mk tetap"></i>Tetap</span>` : ""}</div>
+    </div>
+    ${refTxt ? `<details class="cal-how"><summary>Cara membaca warna</summary><p>${esc(refTxt + tetapTxt)}</p></details>` : ""}`;
 
   // detail hari
   const c = cal.days.get(hf.day);
   const dayList = list.filter(t => dayKey(t.date) === hf.day).sort((a, b) => +new Date(b.date) - +new Date(a.date));
-  let body = `<div class="card-head"><h2>${esc(dayLabel(hf.day))}</h2>${c?.amount ? `<b class="num${blur}" style="color:var(--${metric === "income" ? "income" : "expense"})">${esc(rupiah(c.amount))}</b>` : ""}</div>`;
+  const sd = c?.date || new Date();
+  let body = `<div class="day-head">
+      <div class="day-chip${c?.isToday ? " today" : ""}"><small>${WEEKDAY_SHORT[sd.getDay()]}</small><b>${sd.getDate()}</b></div>
+      <div class="day-title"><h2>${esc(dayLabel(hf.day))}</h2><small class="muted">${dayList.length ? `${dayList.length} transaksi` : c?.future ? "Belum terjadi" : "Tidak ada transaksi"}</small></div>
+      ${c?.amount ? `<b class="num${blur} day-amt" style="color:var(--${metric === "income" ? "income" : "expense"})">${esc(rupiah(c.amount))}</b>` : ""}
+    </div>`;
   if (c && st.allowance && !c.future) {
     const v = c.rutin, pct = Math.round(v / st.allowance * 100);
     body += `<div class="progress ${pct > 100 ? "w100" : pct >= 80 ? "w80" : ""}" style="margin:2px 0 6px"><i style="width:${Math.min(100, pct)}%"></i></div>
@@ -753,7 +777,7 @@ function renderCalendar(el, list) {
   if (dayList.length) body += `<div class="trx-list">${dayList.map(trxRow).join("")}</div>`;
   else if (c && !c.future) body += `<div class="empty" style="padding:18px 8px"><div class="e-ico">${metric === "expense" && !filtered ? "🎉" : "🪹"}</div>${metric === "expense" && !filtered ? "Hari tanpa pengeluaran — mantap!" : "Tidak ada transaksi."}</div>`;
   else if (!extra.length) body += `<p class="muted" style="margin:4px 0 10px">Belum ada transaksi.</p>`;
-  body += `<button class="btn btn-ghost btn-sm" data-addday="${esc(hf.day)}" style="margin-top:8px">${icon("plus")} Catat di tanggal ini</button>`;
+  body += `<button class="btn btn-ghost btn-sm btn-block day-add" data-addday="${esc(hf.day)}">${icon("plus")} Catat di tanggal ini</button>`;
   $("#hsDay", el).innerHTML = body;
 
   // pola per hari

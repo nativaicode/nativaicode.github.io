@@ -11,6 +11,7 @@ const P = {
   right: '<path d="m9 18 6-6-6-6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
   download: '<path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
