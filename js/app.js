@@ -723,7 +723,8 @@ function renderCalendar(el, list) {
   if (budget && current) boxes.unshift(["🎯", "Jatah/hari tersisa", money(st.perDayLeft), `${st.daysLeft} hari lagi`]);
   else if (budget) boxes.push(["⚠️", "Lewat jatah", `<span class="num">${st.overAllowance}</span> <span class="unit">hari</span>`, `jatah ${rupiah(st.allowance)}`]);
   else if (st.weekendDays && st.weekdayDays) boxes.push(["🛍️", "Akhir pekan/hari", money(st.weekendAvg), `hari kerja ${rupiah(st.weekdayAvg)}`]);
-  $("#hsCalStats", el).innerHTML = boxes.map(([ic, l, v, sub], i) => `<div class="stat-tile${i === 0 && budget && current ? " accent" : ""}"><span class="st-ic">${ic}</span><small>${esc(l)}</small><b>${v}</b>${sub ? `<em>${esc(sub)}</em>` : ""}</div>`).join("");
+  const strip = $("#hsCalStats", el);
+  strip.innerHTML = boxes.map(([ic, l, v, sub], i) => `<div class="stat-tile${i === 0 && budget && current ? " accent" : ""}"><span class="st-ic">${ic}</span><small>${esc(l)}</small><b>${v}</b>${sub ? `<em>${esc(sub)}</em>` : ""}</div>`).join("");
 
   // grid
   const order = [0, 1, 2, 3, 4, 5, 6];

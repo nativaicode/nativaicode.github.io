@@ -705,3 +705,9 @@ button.set-item:hover { background: var(--surface-2); }
 .cal-cell.today .cal-d { display: inline-block; }
 .cal-amt { font-size: 11px; letter-spacing: -.02em; text-overflow: clip; }
 .cal-mk { top: 5px; right: 4px; flex-direction: column; }
+/* v2.9.2: statistik kalender jadi grid 2 kolom di HP (tidak digeser, tidak menempel tepi kartu) */
+.cal-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: visible; margin: 0 0 14px; padding: 0; scroll-snap-type: none; }
+.stat-tile { min-width: 0; padding: 10px 12px; }
+.stat-tile small, .stat-tile em { overflow: hidden; text-overflow: ellipsis; }
+.stat-tile b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 900px) { .cal-stats { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
