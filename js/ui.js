@@ -82,6 +82,33 @@ export function openSheet({ title = "", body = "", onMount, onClose, wide = fals
   if (first && matchMedia("(min-width: 700px)").matches) setTimeout(() => first.focus(), 50);
   return api;
 }
+/* Keyboard HP: jaga lembar & tombolnya tetap di atas keyboard */
+(function keyboardAware() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const upd = () => {
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--kb", kb + "px");
+    document.documentElement.style.setProperty("--vvh", Math.round(vv.height) + "px");
+  };
+  vv.addEventListener("resize", upd); vv.addEventListener("scroll", upd); upd();
+  document.addEventListener("focusin", e => {
+    const f = e.target;
+    const sheet = f.closest?.(".sheet");
+    if (!sheet || !f.matches("input, textarea, select") || matchMedia("(min-width: 700px)").matches) return;
+    setTimeout(() => {
+      // tampilkan tombol utama di bawah isian (bila muat), lalu pastikan isian tetap terlihat
+      const btns = [...sheet.querySelectorAll(".btn-primary")].filter(b => b.offsetParent && (b.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_PRECEDING));
+      const btn = btns[0];
+      if (btn) {
+        const sr = sheet.getBoundingClientRect(), br = btn.getBoundingClientRect(), fr = f.getBoundingClientRect();
+        if (br.bottom > sr.bottom - 8 && br.bottom - fr.top < sr.height - 16) sheet.scrollTop += br.bottom - sr.bottom + 16;
+      }
+      f.scrollIntoView({ block: "nearest" });
+    }, 320);
+  });
+})();
+
 export function closeTopSheet() { sheetStack[sheetStack.length - 1]?.close(); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeTopSheet(); });
 

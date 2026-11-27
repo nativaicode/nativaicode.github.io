@@ -711,3 +711,7 @@ button.set-item:hover { background: var(--surface-2); }
 .stat-tile small, .stat-tile em { overflow: hidden; text-overflow: ellipsis; }
 .stat-tile b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
 @media (min-width: 900px) { .cal-stats { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
+/* v2.9.3: lembar (sheet) naik di atas keyboard HP */
+@media (max-width: 699px) {
+  .sheet { bottom: var(--kb, 0px); max-height: calc(var(--vvh, 100dvh) * .94); transition: bottom .15s ease; }
+}
