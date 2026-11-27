@@ -1018,7 +1018,8 @@ function trxForm(existing = null, presetType = "expense") {
           if (!text) { hint("", false); return; }
           const p = parseUtterance(text, { wallets: activeWallets(), cats: { expense: cats("expense"), income: cats("income") }, memory: memory() });
           apply(p);
-          hint(`🎙️ “${esc(text)}”${p.amount ? "" : " — <b>nominal tidak terdengar, isi manual</b>"}`);
+          const sum = p.parts?.length > 1 ? `<br>🧮 ${p.parts.map(v => esc(rupiah(v))).join(" + ")} = <b>${esc(rupiah(p.amount))}</b>` : "";
+          hint(`🎙️ “${esc(text)}”${p.amount ? sum : " — <b>nominal tidak terdengar, isi manual</b>"}`);
         } catch (err) { hint("", false); toast(err.message, "warn", 6000); }
         finally { btn.classList.remove("rec"); btn.textContent = "🎙️ Ucapkan"; }
       });

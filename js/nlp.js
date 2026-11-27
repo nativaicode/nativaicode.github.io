@@ -33,36 +33,53 @@ export function wordsToNumber(tokens) {
   return Math.round(total + small);
 }
 
-/** Cari nominal dalam teks: "150 ribu", "1,5 juta", "Rp 25.000", "50rb", "seratus lima puluh ribu" → angka terbesar */
-export function parseAmount(text) {
+/** Semua nominal dalam teks (urut kemunculan). Angka < 100 tanpa satuan diabaikan (mis. "2 porsi"). */
+export function findAmounts(text) {
   const s = norm(text).replace(/rp\.?\s*/g, " ");
   const found = [];
   const re = /(\d+(?:[.,]\d+)*)\s*(ribu|rb|k|juta|jt|miliar|milyar|m)?\b/g;
   let m;
   while ((m = re.exec(s))) {
-    let num = m[1];
-    const unit = m[2];
+    const num = m[1], unit = m[2];
     let v;
     if (unit) {
       // 1,5 juta / 1.5 jt → desimal; 1.500 ribu → ribuan
-      if (/^\d+[.,]\d{1,2}$/.test(num)) v = parseFloat(num.replace(",", "."));
-      else v = parseFloat(num.replace(/[.,]/g, ""));
+      v = /^\d+[.,]\d{1,2}$/.test(num) ? parseFloat(num.replace(",", ".")) : parseFloat(num.replace(/[.,]/g, ""));
       v *= SCALE[unit];
     } else {
       if (/^\d{1,3}([.,]\d{3})+$/.test(num)) v = parseFloat(num.replace(/[.,]/g, ""));
       else if (/^\d+[.,]\d{1,2}$/.test(num)) v = parseFloat(num.replace(",", "."));
       else v = parseFloat(num.replace(/[.,]/g, ""));
+      if (v < 100) continue;
     }
-    if (v > 0) found.push(v);
+    if (v > 0) found.push({ v: Math.round(v), at: m.index });
   }
-  // kata bilangan
+  // kata bilangan ("seratus lima puluh ribu")
   const toks = s.split(" ");
-  let span = [];
-  const flush = () => { if (span.some(t => t !== "se")) { const v = wordsToNumber(span); if (v > 0) found.push(v); } span = []; };
-  for (const t of toks) { if (NUMWORD.has(t)) span.push(t); else flush(); }
+  let span = [], pos = 0, start = 0;
+  // span harus memuat kata bilangan (bukan cuma "ribu" yang mengikuti angka, mis. "3 ribu")
+  const flush = () => { if (span.some(t => !(t in SCALE) && t !== "se")) { const v = wordsToNumber(span); if (v >= 100) found.push({ v, at: start }); } span = []; };
+  for (const t of toks) {
+    if (NUMWORD.has(t)) { if (!span.length) start = pos; span.push(t); } else flush();
+    pos += t.length + 1;
+  }
   flush();
-  return found.length ? Math.round(Math.max(...found)) : 0;
+  return found.sort((a, b) => a.at - b.at).map(x => x.v);
 }
+
+const JOIN_RE = /\b(dan|tambah|plus|sama|serta|ditambah)\b|,\s|\+|&/;
+/**
+ * Nominal dari teks. Beberapa item yang disambung "dan / tambah / , / +" → dijumlahkan
+ * ("nasi goreng 15 ribu dan teh tarik 5 ribu" → 20.000); selain itu ambil yang terbesar.
+ * @returns {{total:number, parts:number[]}}
+ */
+export function parseAmountDetail(text) {
+  const parts = findAmounts(text);
+  if (!parts.length) return { total: 0, parts: [] };
+  if (parts.length > 1 && JOIN_RE.test(String(text).toLowerCase().replace(/(\d),(\d)/g, "$1.$2"))) return { total: parts.reduce((a, b) => a + b, 0), parts };
+  return { total: Math.max(...parts), parts: [Math.max(...parts)] };
+}
+export const parseAmount = text => parseAmountDetail(text).total;
 
 /* ─── Kamus kategori bawaan (dipetakan ke kategori yang benar-benar ada) ─── */
 const DICT = [
@@ -143,9 +160,9 @@ export function guessWallet(text, wallets) {
  */
 export function parseUtterance(text, { wallets = [], cats = { expense: [], income: [] }, memory = {} } = {}) {
   const t = norm(text);
-  const amount = parseAmount(text);
+  const { total: amount, parts } = parseAmountDetail(text);
   let type = TRANSFER_RE.test(t) ? "transfer" : INCOME_RE.test(t) ? "income" : "expense";
-  const out = { type, amount, category: "", walletId: "", toWalletId: "", note: "" };
+  const out = { type, amount, parts, category: "", walletId: "", toWalletId: "", note: "" };
   if (type === "transfer") {
     // "pindah dari BTN Ayah ke Gopay" / "top up gopay dari BTN"
     const fromM = t.match(/\bdari\s+(.+?)(?=\s+ke\s|$)/);

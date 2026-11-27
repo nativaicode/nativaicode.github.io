@@ -15,4 +15,4 @@ export const firebaseConfig = {
 export const VAPID_KEY = "BCpI7UZap--kPRuIuiDcWFG253CjdHZwo1is2HRY2vGZwhY_ZOv74Ylwc0Kjtg4DV9IwYn91PZ9h5DgMAmVzHY4";
 
 export const APP_NAME = "Keuangan Nativan";
-export const APP_VERSION = "2.7.0";
+export const APP_VERSION = "2.7.1";
