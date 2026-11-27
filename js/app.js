@@ -1375,13 +1375,18 @@ document.addEventListener("contextmenu", e => { if (!editable(e.target)) e.preve
 
 /* ─── Service worker ─── */
 if ("serviceWorker" in navigator && !D.USE_EMU) {
-  navigator.serviceWorker.register("sw.js").then(reg => {
-    reg.addEventListener("updatefound", () => {
-      const nw = reg.installing;
-      nw?.addEventListener("statechange", () => {
-        if (nw.state === "installed" && navigator.serviceWorker.controller) toast("Versi baru tersedia — tutup & buka lagi aplikasi untuk memperbarui.", "info", 8000);
-      });
-    });
+  /* Pembaruan otomatis: cek versi baru saat aplikasi dibuka/kembali aktif, lalu muat ulang sendiri */
+  let hadController = !!navigator.serviceWorker.controller, reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) { hadController = true; return; } // pemasangan pertama, bukan pembaruan
+    if (reloading) return;
+    if (!document.querySelector("#sheetRoot .sheet") && !document.getElementById("lockRoot")) { reloading = true; location.reload(); }
+    else toast("Versi baru aplikasi siap", "info", 20000, { label: "Muat ulang", fn: () => location.reload() });
+  });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+    setInterval(check, 30 * 60e3);
   }).catch(err => console.warn("SW", err));
 }
 

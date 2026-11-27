@@ -1,7 +1,7 @@
 /* Keuangan Nativan — Service Worker
    Aset aplikasi di-cache agar bisa dibuka offline. Data (Firestore) punya cache offline sendiri.
    Naikkan VERSION setiap kali ada perubahan file supaya pengguna mendapat versi baru. */
-const VERSION = "kn-v2.7.1";
+const VERSION = "kn-v2.7.2";
 const SHELL = [
   "./", "./index.html", "./privacy.html", "./manifest.json",
   "./css/app.css",
@@ -12,7 +12,8 @@ const SHELL = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: "reload" → ambil file terbaru dari server, bukan dari cache HTTP browser
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
