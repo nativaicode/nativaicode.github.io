@@ -13,7 +13,7 @@ import { setupLock, lockSettingsSheet, lockConfigured } from "./lock.js";
 import { shareReport } from "./report.js";
 import { pushSupported, enableDailyReminder, disableDailyReminder, dailyReminderOn, saveMemberNotif } from "./push.js";
 import { passesMemberPref, buildActivityMessage } from "./reminder-logic.js";
-import { parseUtterance, parseReceipt, guessCategory, memoryKeys } from "./nlp.js";
+import { parseUtterance, parseReceipt, mergeReceipts, guessCategory, guessItemCategory, splitByCategory, groupItems, memoryKeys } from "./nlp.js";
 import { voiceSupported, listenOnce } from "./voice.js";
 import { compressImage, dataUrlKB } from "./image.js";
 
@@ -639,7 +639,7 @@ VIEWS.history = {
       if (hf.wallet && t.walletId !== hf.wallet && t.toWalletId !== hf.wallet) return false;
       if (hf.cat && t.category !== hf.cat) return false;
       if (q) {
-        const hay = [t.category, t.note, t.owner, t.toOwner, walletName(t.walletId), t.toWalletId ? walletName(t.toWalletId) : "", TYPE_LABEL[t.type]].join(" ").toLowerCase();
+        const hay = [t.category, t.note, t.owner, t.toOwner, walletName(t.walletId), t.toWalletId ? walletName(t.toWalletId) : "", TYPE_LABEL[t.type], ...(t.items || []).map(i => i.n)].join(" ").toLowerCase();
         if (!hay.includes(q) && !(qNum && String(t.amount).includes(String(qNum)))) return false;
       }
       return true;
@@ -1031,13 +1031,38 @@ function trxForm(existing = null, presetType = "expense") {
         hint(`📷 Menyiapkan… <span class="ocr-bar"><i style="width:0%"></i></span>`);
         try {
           const { recognizeReceipt } = await import("./ocr.js");
-          const text = await recognizeReceipt(file, (p, lbl) => hint(`📷 ${esc(lbl)} <span class="ocr-bar"><i style="width:${Math.round(p * 100)}%"></i></span>`));
-          const r = parseReceipt(text);
+          const prog = pass => (p, lbl) => hint(`📷 ${esc(lbl)}${pass > 1 ? " (cek ulang)" : ""} <span class="ocr-bar"><i style="width:${Math.round(p * 100)}%"></i></span>`);
           if (!proof) attachFile(file, "Struk dilampirkan sebagai bukti").catch(() => {});
-          if (f.type !== "expense") f.type = "expense";
-          const category = guessCategory(r.merchant + " " + text.slice(0, 300), "expense", cats("expense"), memory());
-          apply({ type: "expense", amount: r.total, date: r.date, note: r.merchant ? r.merchant.charAt(0) + r.merchant.slice(1).toLowerCase() : "", category });
-          hint(r.total ? `📷 Terbaca: <b>${esc(rupiah(r.total))}</b>${r.merchant ? " · " + esc(r.merchant) : ""}${r.date ? " · " + esc(fmtDate(r.date, true)) : ""}. Periksa lagi sebelum simpan.` : "📷 Total tidak terbaca jelas — isi nominal manual. Tips: foto lurus, terang, struk memenuhi layar.");
+          const text = await recognizeReceipt(file, prog(1), { binarize: true, psm: "4" });
+          let r = parseReceipt(text);
+          // Lapis kedua: bila tanggal hilang / total kurang meyakinkan, baca ulang dengan mode berbeda lalu gabungkan
+          if (!r.date || r.confidence !== "high") {
+            const text2 = await recognizeReceipt(file, prog(2), { binarize: false, psm: "4" });
+            r = mergeReceipts(r, parseReceipt(text2));
+          }
+          // nama toko lebih menentukan daripada isi barang (O!Save → Belanja Dapur, bukan Makan & Minum)
+          const category = guessCategory(r.merchant, "expense", cats("expense"), memory()) || guessCategory(r.merchant + " " + text.slice(0, 300), "expense", cats("expense"), memory()) || f.category;
+          hint("", false);
+          if (!r.total && !r.items.length) { toast("Struk tidak terbaca jelas — isi manual. Tips: foto lurus, terang, struk memenuhi layar.", "warn", 7000); return; }
+          receiptReview(r, {
+            category, walletId: f.walletId,
+            onSingle: ({ total, items, category: cat, walletId, date }) => {
+              f.items = items; f.walletId = walletId;
+              apply({ type: "expense", amount: total, date, note: [r.merchant, items.length ? items.length + " barang" : ""].filter(Boolean).join(" · "), category: cat });
+              hint(`🧾 ${esc(r.merchant || "Struk")} · ${items.length} barang · <b>${esc(rupiah(total))}</b>. Periksa lalu Simpan.`);
+            },
+            onSplit: async ({ groups, walletId, date }) => {
+              const owner = walletOwner(walletId) || myNick() || owners()[0];
+              let n = 0;
+              for (const g of groups) {
+                await D.addTransaction({ type: "expense", amount: g.amount, category: g.category, walletId, owner, date, expenseType: "Rutin",
+                  note: `${r.merchant || "Belanja"} · ${g.items.length} barang`, items: g.items }, proof || null);
+                n++;
+              }
+              api.close();
+              toast(`${n} transaksi tercatat dari 1 struk ✓`, "success");
+            },
+          });
         } catch (err) { hint("", false); toast("Gagal membaca struk: " + (err?.message || err), "error", 6000); }
         finally { btn.disabled = false; }
       });
@@ -1091,6 +1116,8 @@ function trxDetail(t) {
       <div class="detail-amount"><div class="trx-ico ${t.type}" style="margin:0 auto 10px;width:56px;height:56px;font-size:26px">${trxIcon(t)}</div>
         <div class="big trx-amt ${sign}">${t.type === "expense" ? money(-t.amount) : money(t.amount, { sign: t.type !== "transfer" })}</div></div>
       <div class="kv">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      ${t.items?.length ? `<details class="items-box"><summary>🧾 Rincian belanja (${t.items.length} barang)</summary>
+        <div class="items-list">${t.items.map(i => `<div><span>${esc(i.n)}${i.q > 1 ? ` <small class="faint">${i.q}×</small>` : ""}</span><b class="num">${money(i.p)}</b></div>`).join("")}</div></details>` : ""}
       ${t.hasProof ? `<div class="field-label" style="margin-bottom:6px">📎 Bukti transaksi</div><button type="button" class="proof-view" id="dProof"><div class="skeleton" style="height:140px"></div></button>` : ""}
       <div class="btn-row">
         <button class="btn btn-danger" id="dDel">${icon("trash")} Hapus</button>
@@ -1109,6 +1136,86 @@ function trxDetail(t) {
     try { const r = await D.deleteTransaction(t); s.close(); toast(r.offline ? "Dihapus (menunggu sinkron)" : "Transaksi dihapus", "success"); }
     catch (err) { toast(friendlyError(err), "error"); }
   };
+}
+
+/* ─── Rincian struk: periksa, koreksi, pisah per kategori ─── */
+function receiptReview(r, { category, walletId, onSingle, onSplit }) {
+  const expCats = cats("expense");
+  let baseCat = expCats.includes(category) ? category : (expCats.find(c => /belanja/i.test(c)) || expCats[0]);
+  const items = groupItems(r.items).map(it => ({ ...it, category: guessItemCategory(it.name, baseCat, expCats) }));
+  const nFixed = items.filter(x => x.fixed).length;
+  let total = r.total || Math.max(0, r.itemsSum - r.discount);
+  const conf = { high: ["ok", "✓ Total terverifikasi"], medium: ["warn", "Periksa total"], low: ["bad", "⚠ Total diperkirakan"] }[r.confidence] || ["warn", "Periksa total"];
+  const ws = activeWallets();
+  const catOpts = sel => expCats.map(c => `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
+  const s = openSheet({
+    title: "Rincian struk",
+    body: `
+      <div class="rc-head">
+        <div><b>${esc(r.merchant || "Struk belanja")}</b><small class="muted">${r.date ? esc(fmtDate(r.date, true)) : "Tanggal tidak terbaca — memakai waktu sekarang"}</small></div>
+        <span class="pill ${conf[0]}" title="${esc(r.sources.join(", "))}">${conf[1]}</span>
+      </div>
+      <div class="field"><label for="rcTotal">Total dibayar</label><div class="amount-wrap"><span>Rp</span><input class="amount-input num" id="rcTotal" inputmode="numeric" value="${formatNominalInput(total)}"></div>
+        ${r.sources.length ? `<span class="hint">Dicocokkan dari: ${esc(r.sources.join(" · "))}</span>` : ""}</div>
+      <div class="rc-check" id="rcCheck"></div>
+      <div class="row-2">
+        <div class="field"><label for="rcW">Dibayar dari</label><select class="input select" id="rcW">${ws.map(w => `<option value="${esc(w.id)}" ${w.id === walletId ? "selected" : ""}>${walletIcon(w.type)} ${esc(walletLabel(w))}</option>`).join("")}</select></div>
+        <div class="field"><label for="rcCat">Kategori struk</label><select class="input select" id="rcCat">${catOpts(baseCat)}</select></div>
+      </div>
+      ${items.length ? `<div class="field-label" style="margin:4px 0 6px">${items.length} barang · ketuk harga untuk koreksi, ✕ untuk buang baris salah</div>
+      <div class="rc-items" id="rcItems">${items.map((it, i) => `
+        <div class="rc-item${it.suspect ? " suspect" : ""}" data-i="${i}">
+          <div class="rc-name">${esc(it.name)}${it.qty > 1 ? ` <small class="faint">${it.qty} × ${esc(rupiah(it.unit).replace("Rp ", ""))}</small>` : ""}${it.fixed ? ` <span class="rc-tag" title="Harga dibetulkan otomatis agar cocok dengan total — cek struk">dibetulkan</span>` : ""}${it.suspect ? ` <span class="rc-tag warn">cek harga</span>` : ""}
+            <select class="rc-cat" data-cat="${i}">${catOpts(it.category)}</select></div>
+          <input class="input num rc-price" data-p="${i}" inputmode="numeric" value="${formatNominalInput(it.price)}">
+          <button type="button" class="icon-btn rc-del" data-del="${i}" aria-label="Buang">✕</button>
+        </div>`).join("")}</div>` : `<p class="muted">Rincian barang tidak terbaca, hanya total.</p>`}
+      <div id="rcSplitInfo" class="hint" style="margin:10px 0"></div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn btn-ghost hidden" id="rcSplit">Pisah per kategori</button>
+        <button class="btn btn-primary" id="rcOne">Pakai sebagai 1 transaksi</button>
+      </div>`,
+  });
+  const live = () => items.filter(x => x.include !== false);
+  const refresh = () => {
+    total = parseNominal(s.$("#rcTotal").value);
+    const sum = live().reduce((a, x) => a + x.price, 0), net = sum - (r.discount || 0);
+    const box = s.$("#rcCheck");
+    if (!items.length) box.innerHTML = "";
+    else if (net === total) box.innerHTML = `<div class="pill ok">✓ Jumlah rincian cocok dengan total (${esc(rupiah(sum))}${r.discount ? " − diskon " + esc(rupiah(r.discount)) : ""})${nFixed ? ` · ${nFixed} harga salah baca dibetulkan otomatis` : ""}</div>`;
+    else box.innerHTML = `<div class="pill warn">⚠ Rincian ${esc(rupiah(net))} · selisih ${esc(rupiah(total - net))} — ada harga yang mungkin salah baca</div>`;
+    const groups = splitByCategory(live(), total);
+    const multi = groups.length > 1;
+    s.$("#rcSplit").classList.toggle("hidden", !multi);
+    s.$("#rcSplit").textContent = `Pisah jadi ${groups.length} transaksi`;
+    s.$("#rcSplitInfo").innerHTML = multi ? "Pisah per kategori: " + groups.map(g => `<b>${esc(g.category)}</b> ${esc(rupiah(g.amount))}`).join(" · ") : "";
+  };
+  s.el.addEventListener("input", e => {
+    const p = e.target.dataset.p;
+    if (p != null) { e.target.value = formatNominalInput(e.target.value); const it = items[+p]; it.price = parseNominal(e.target.value); it.unit = Math.round(it.price / (it.qty || 1)); e.target.closest(".rc-item").classList.remove("suspect"); }
+    if (e.target.id === "rcTotal") e.target.value = formatNominalInput(e.target.value);
+    refresh();
+  });
+  s.el.addEventListener("change", e => {
+    if (e.target.dataset.cat != null) { items[+e.target.dataset.cat].category = e.target.value; refresh(); }
+    if (e.target.id === "rcCat") { const old = baseCat; baseCat = e.target.value; items.forEach(x => { if (x.category === old || !expCats.includes(x.category)) x.category = e.target.value; }); s.$$(".rc-cat").forEach((sel, i) => { sel.value = items[i].category; }); refresh(); }
+  });
+  s.el.addEventListener("click", e => {
+    const d = e.target.closest("[data-del]"); if (!d) return;
+    const i = +d.dataset.del; items[i].include = items[i].include === false; d.closest(".rc-item").classList.toggle("off", items[i].include === false); refresh();
+  });
+  const compact = list => list.map(x => ({ n: x.name, q: x.qty || 1, p: x.price }));
+  const date = r.date || new Date();
+  s.$("#rcOne").onclick = () => {
+    if (!parseNominal(s.$("#rcTotal").value)) return toast("Isi total.", "warn");
+    onSingle({ total: parseNominal(s.$("#rcTotal").value), items: compact(live()), category: s.$("#rcCat").value, walletId: s.$("#rcW").value, date });
+    s.close();
+  };
+  s.$("#rcSplit").onclick = e => busy(e.currentTarget, async () => {
+    const groups = splitByCategory(live(), parseNominal(s.$("#rcTotal").value)).map(g => ({ ...g, items: compact(g.items) }));
+    try { await onSplit({ groups, walletId: s.$("#rcW").value, date }); s.close(); } catch (err) { toast(friendlyError(err), "error"); }
+  });
+  refresh();
 }
 
 function proofViewer(url, name) {
@@ -1341,6 +1448,8 @@ function exportSheet() {
       const ws1 = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Info: "Tidak ada transaksi" }]);
       ws1["!cols"] = [12, 7, 16, 20, 14, 18, 18, 12, 12, 14, 30, 16].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws1, "Transaksi");
+      const itemRows = [...list].reverse().flatMap(t => (t.items || []).map(i => ({ Tanggal: fmtDate(t.date), Catatan: t.note || "", Kategori: t.category || "", Barang: i.n, Qty: i.q || 1, Harga: i.p })));
+      if (itemRows.length) { const wsI = XLSX.utils.json_to_sheet(itemRows); wsI["!cols"] = [12, 26, 18, 36, 6, 12].map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, wsI, "Rincian Struk"); }
       const sm = summarize(list);
       const ring = [
         ["Rentang", r.label], ["Dibuat", fmtDate(new Date(), true)], [],

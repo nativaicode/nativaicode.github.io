@@ -495,6 +495,25 @@ button.set-item:hover { background: var(--surface-2); }
 .proof-view img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
 .proof-full img { display: block; width: 100%; height: auto; border-radius: 12px; }
 
+/* ─── Rincian struk ─── */
+.rc-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.rc-head b { display: block; font-size: 17px; }
+.rc-head small { display: block; font-size: 12.5px; }
+.rc-check { margin: -4px 0 12px; }
+.rc-check .pill { white-space: normal; line-height: 1.35; padding: 8px 12px; border-radius: 12px; }
+.rc-items { display: grid; gap: 6px; max-height: 46vh; overflow: auto; padding-right: 2px; }
+.rc-item { display: grid; grid-template-columns: 1fr 108px 34px; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 8px 8px 12px; }
+.rc-item.off { opacity: .4; }
+.rc-item.off .rc-name { text-decoration: line-through; }
+.rc-name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.rc-cat { display: block; margin-top: 4px; font-size: 11.5px; border: 0; background: var(--surface-2); border-radius: 8px; padding: 3px 6px; color: var(--muted); max-width: 100%; }
+.rc-price { min-height: 38px; padding: 6px 10px; text-align: right; font-weight: 700; }
+.rc-del { width: 34px; height: 34px; font-size: 13px; }
+.items-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px; margin-bottom: 16px; }
+.items-box summary { font-weight: 700; cursor: pointer; }
+.items-list { display: grid; gap: 6px; margin-top: 10px; max-height: 40vh; overflow: auto; }
+.items-list > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+
 /* ─── Kunci aplikasi ─── */
 #lockRoot { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: grid; place-items: center; padding: 24px; }
 .lock-box { width: 100%; max-width: 340px; text-align: center; }
@@ -522,3 +541,7 @@ button.set-item:hover { background: var(--surface-2); }
   .grid-home > .grid { display: contents; }
   .o1 { order: 1; } .o1b { order: 1; } .o1c { order: 1; } .o2b { order: 2; } .o2 { order: 3; } .o3 { order: 4; } .o4 { order: 5; } .o5 { order: 6; }
 }
+
+.rc-item.suspect { border-color: color-mix(in srgb, var(--warn) 60%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--surface-2, transparent)); }
+.rc-tag { display: inline-block; font-size: 10.5px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); }
+.rc-tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }

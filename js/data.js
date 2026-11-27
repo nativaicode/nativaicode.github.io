@@ -312,6 +312,8 @@ function cleanTrx(t) {
   if (t.type === "transfer") { out.toWalletId = t.toWalletId; out.owner = t.owner || ""; out.toOwner = t.toOwner || t.owner || ""; }
   if (t.type === "adjust") out.category = t.category || "Penyesuaian Saldo";
   for (const k of ["billId", "billKey", "debtId"]) if (t[k]) out[k] = t[k];
+  if (Array.isArray(t.items) && t.items.length && t.type === "expense")
+    out.items = t.items.slice(0, 100).map(i => ({ n: String(i.n ?? i.name ?? "").slice(0, 40), q: Math.max(1, Math.round(+(i.q ?? i.qty) || 1)), p: Math.round(+(i.p ?? i.price) || 0) }));
   if (t.hasProof) out.hasProof = true;
   return out;
 }
