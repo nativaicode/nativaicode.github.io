@@ -309,7 +309,7 @@ a:has(> .avatar) { text-decoration: none; }
 .icon-btn:disabled { opacity: .35; cursor: default; }
 .icon-btn svg { width: 20px; height: 20px; }
 .toolbar { display: grid; gap: 10px; margin: 12px 0; }
-@media (min-width: 900px) { .toolbar { grid-template-columns: 1.3fr 1fr 1fr 1fr; align-items: center; } }
+@media (min-width: 900px) { .toolbar { grid-template-columns: minmax(0, 1.2fr) auto minmax(0, .9fr) minmax(0, .9fr); align-items: center; } }
 .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
@@ -545,3 +545,75 @@ button.set-item:hover { background: var(--surface-2); }
 .rc-item.suspect { border-color: color-mix(in srgb, var(--warn) 60%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--surface-2, transparent)); }
 .rc-tag { display: inline-block; font-size: 10.5px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); }
 .rc-tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+
+/* ─── Kalender pengeluaran ─── */
+.seg-mode { margin: 12px 0 0; max-width: 360px; }
+.cal-layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); margin-top: 4px; }
+.cal-side { align-content: start; }
+@media (min-width: 900px) { .cal-layout { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); align-items: start; } .seg-mode { margin-top: 14px; } }
+.cal-card { padding: 14px; }
+.cal-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+@media (min-width: 560px) { .cal-stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); } }
+.cal-stats .sum-box { background: var(--surface-2); border-color: transparent; }
+.cal-stats .sum-box b { font-size: 14px; margin: 2px 0 1px; }
+.cal-stats .sum-box small.faint { color: var(--faint); font-size: 11px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); padding: 2px 0 4px; }
+.cal-dow.sun, .cal-cell.sun .cal-d { color: var(--expense); }
+.cal-cell { --heat: transparent; position: relative; display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; min-height: 54px; padding: 5px 4px 4px 6px; border-radius: 11px; border: 1px solid var(--border); background: var(--heat); color: var(--text); text-align: left; font: inherit; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.cal-cell:active { transform: scale(.96); }
+.cal-cell.empty { border: 0; background: none; cursor: default; }
+.cal-d { font-size: 12.5px; font-weight: 700; line-height: 1.1; }
+.cal-d small { font-size: 9.5px; font-weight: 600; color: var(--muted); }
+.cal-amt { font-size: 10.5px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-mk { position: absolute; top: 5px; right: 4px; display: flex; gap: 2px; }
+.mk { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: var(--faint); }
+.mk.inc { background: var(--income); }
+.mk.bill { background: var(--warn); }
+.mk.bill.paid { background: transparent; box-shadow: inset 0 0 0 1.5px var(--warn); }
+.mk.debt { background: var(--transfer); }
+.mk.tetap { background: var(--muted); border-radius: 1px; }
+.cal-cell.future { border-style: dashed; }
+.cal-cell.future .cal-d { color: var(--faint); }
+.cal-cell.today { box-shadow: inset 0 0 0 2px var(--primary); }
+.cal-cell.sel { box-shadow: inset 0 0 0 2px var(--text); }
+.cal-cell.today.sel { box-shadow: inset 0 0 0 2px var(--text), 0 0 0 2px var(--primary); }
+.cal-cell.l1 { --heat: color-mix(in srgb, var(--income) 16%, transparent); }
+.cal-cell.l2 { --heat: color-mix(in srgb, #eab308 26%, transparent); }
+.cal-cell.l3 { --heat: color-mix(in srgb, #f97316 34%, transparent); }
+.cal-cell.l4 { --heat: color-mix(in srgb, var(--expense) 46%, transparent); }
+.cal-legend { margin-top: 12px; display: grid; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.cal-scale, .cal-keys { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cal-scale i { width: 18px; height: 12px; border-radius: 4px; border: 1px solid var(--border); }
+.cal-scale i.l1 { background: color-mix(in srgb, var(--income) 16%, transparent); }
+.cal-scale i.l2 { background: color-mix(in srgb, #eab308 26%, transparent); }
+.cal-scale i.l3 { background: color-mix(in srgb, #f97316 34%, transparent); }
+.cal-scale i.l4 { background: color-mix(in srgb, var(--expense) 46%, transparent); }
+.cal-keys { gap: 12px; }
+.cal-keys span { display: inline-flex; align-items: center; gap: 5px; }
+.cal-legend .hint { margin: 0; }
+.cal-dues { display: grid; gap: 6px; margin: 4px 0 8px; }
+.cal-due { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border-radius: 12px; background: var(--surface-2); font-size: 13.5px; }
+.cal-due[data-godebt] { cursor: pointer; }
+.dow-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 56px; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; color: var(--muted); }
+.dow-row b { text-align: right; color: var(--text); font-size: 12px; }
+.dow-bar { height: 9px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.dow-bar i { display: block; height: 100%; border-radius: 99px; background: color-mix(in srgb, var(--expense) 55%, transparent); }
+.dow-row.top { color: var(--text); font-weight: 700; }
+.dow-row.top .dow-bar i { background: var(--expense); }
+.m-income .cal-cell.l1 { --heat: color-mix(in srgb, var(--income) 14%, transparent); }
+.m-income .cal-cell.l2 { --heat: color-mix(in srgb, var(--income) 26%, transparent); }
+.m-income .cal-cell.l3 { --heat: color-mix(in srgb, var(--income) 40%, transparent); }
+.m-income .cal-cell.l4 { --heat: color-mix(in srgb, var(--income) 58%, transparent); }
+.m-transfer .cal-cell.l1 { --heat: color-mix(in srgb, var(--transfer) 14%, transparent); }
+.m-transfer .cal-cell.l2 { --heat: color-mix(in srgb, var(--transfer) 26%, transparent); }
+.m-transfer .cal-cell.l3 { --heat: color-mix(in srgb, var(--transfer) 40%, transparent); }
+.m-transfer .cal-cell.l4 { --heat: color-mix(in srgb, var(--transfer) 58%, transparent); }
+.cal-scale.m-income i.l1 { background: color-mix(in srgb, var(--income) 14%, transparent); }
+.cal-scale.m-income i.l2 { background: color-mix(in srgb, var(--income) 26%, transparent); }
+.cal-scale.m-income i.l3 { background: color-mix(in srgb, var(--income) 40%, transparent); }
+.cal-scale.m-income i.l4 { background: color-mix(in srgb, var(--income) 58%, transparent); }
+.cal-scale.m-transfer i.l1 { background: color-mix(in srgb, var(--transfer) 14%, transparent); }
+.cal-scale.m-transfer i.l2 { background: color-mix(in srgb, var(--transfer) 26%, transparent); }
+.cal-scale.m-transfer i.l3 { background: color-mix(in srgb, var(--transfer) 40%, transparent); }
+.cal-scale.m-transfer i.l4 { background: color-mix(in srgb, var(--transfer) 58%, transparent); }

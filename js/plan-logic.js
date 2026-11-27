@@ -37,6 +37,22 @@ export function billStatus(bill, now = new Date()) {
   return { key: target.key, due: target.due, days, state, paidCurrent: !!paid[cur.key], curKey: cur.key };
 }
 
+/** Semua jatuh tempo tagihan dalam rentang [start, end) — untuk kalender */
+export function billOccurrences(bill, start, end) {
+  if (bill.active === false) return [];
+  const since = bill.since ? startOfDay(new Date(bill.since)) : null;
+  const out = [], seen = new Set();
+  for (let i = 0; ; i++) {
+    const first = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    if (first >= end) break;
+    const o = bill.freq === "yearly" ? occ(bill, first.getFullYear()) : occ(bill, first.getFullYear(), first.getMonth());
+    if (seen.has(o.key)) continue;
+    seen.add(o.key);
+    if (o.due >= start && o.due < end && (!since || o.due >= since)) out.push({ key: o.key, due: o.due, paid: !!bill.paid?.[o.key] });
+  }
+  return out;
+}
+
 export function billDueLabel(st) {
   if (st.state === "overdue") return `Terlambat ${-st.days} hari`;
   if (st.state === "today") return "Jatuh tempo hari ini";

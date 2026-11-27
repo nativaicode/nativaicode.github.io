@@ -3,8 +3,9 @@ import * as D from "./data.js";
 import { state, subscribe, errorBus, budgetFor, payday } from "./data.js";
 import {
   esc, rupiah, rupiahShort, parseNominal, formatNominalInput, periodOf, daysLeft, summarize, fmtDate, fmtTime,
-  dayKey, dayLabel, toLocalInput, catIcon, walletIcon, WALLET_TYPES, TYPE_LABEL, uid as makeId, DEFAULT_CATEGORIES,
+  dayKey, dayLabel, toLocalInput, catIcon, walletIcon, WALLET_TYPES, TYPE_LABEL, uid as makeId, DEFAULT_CATEGORIES, BULAN, HARI,
 } from "./util.js";
+import { buildCalendar, defaultSelectedDay, WEEKDAY_SHORT } from "./calendar-logic.js";
 import { icon, GOOGLE_SVG, toast, openSheet, confirmDialog, busy, friendlyError } from "./ui.js";
 import { APP_NAME, APP_VERSION, VAPID_KEY } from "./config.js";
 import { computeInsights } from "./insights.js";
@@ -599,7 +600,7 @@ function budgetAlert(p, pct, sisa) {
 }
 
 /* ═══════════ VIEW: RIWAYAT ═══════════ */
-const hf = { q: "", type: "all", wallet: "", cat: "", owner: "" };
+const hf = { q: "", type: "all", wallet: "", cat: "", owner: "", mode: pref.get("histMode", "list"), day: "" };
 VIEWS.history = {
   mount(el) {
     el.innerHTML = `
@@ -607,6 +608,7 @@ VIEWS.history = {
         <div class="topbar-actions">${avatarLink()}<button class="btn btn-ghost btn-sm" id="hsExport">${icon("download")} <span class="hide-mobile">Export</span> Excel</button></div></div>
       <div id="hsOffline"></div>
       ${periodNav("pn")}
+      <div class="seg seg-mode" id="hsMode"><button data-mode="list" class="${hf.mode === "list" ? "active" : ""}">📋 Daftar</button><button data-mode="cal" class="${hf.mode === "cal" ? "active" : ""}">📅 Kalender</button></div>
       <div class="toolbar">
         <div class="search">${icon("search")}<input class="input" id="hsQ" type="search" placeholder="Cari catatan, kategori, nominal…" value="${esc(hf.q)}"></div>
         <div class="chips" id="hsType">${[["all", "Semua"], ["expense", "Keluar"], ["income", "Masuk"], ["transfer", "Transfer"]].map(([k, l]) => `<button class="chip ${hf.type === k ? "active" : ""}" data-type="${k}">${l}</button>`).join("")}</div>
@@ -614,8 +616,28 @@ VIEWS.history = {
         <select class="input select" id="hsCat"></select>
       </div>
       <div class="sum-row" id="hsSum"></div>
-      <section class="card" style="padding:8px 10px"><div id="hsList"></div></section>`;
+      <section class="card ${hf.mode === "cal" ? "hidden" : ""}" id="hsListCard" style="padding:8px 10px"><div id="hsList"></div></section>
+      <div class="cal-layout ${hf.mode === "cal" ? "" : "hidden"}" id="hsCalWrap">
+        <section class="card cal-card"><div class="cal-stats" id="hsCalStats"></div><div id="hsCal"></div><div class="cal-legend" id="hsCalLegend"></div></section>
+        <div class="grid cal-side"><section class="card" id="hsDay"></section><section class="card hidden" id="hsDow"></section></div>
+      </div>`;
     bindPeriodNav(el);
+    $("#hsMode", el).onclick = e => {
+      const b = e.target.closest("[data-mode]"); if (!b) return;
+      hf.mode = b.dataset.mode; pref.set("histMode", hf.mode);
+      el.querySelectorAll("#hsMode button").forEach(x => x.classList.toggle("active", x === b));
+      $("#hsListCard", el).classList.toggle("hidden", hf.mode === "cal");
+      $("#hsCalWrap", el).classList.toggle("hidden", hf.mode !== "cal");
+      this.list(el);
+    };
+    el.addEventListener("click", e => {
+      const d = e.target.closest("[data-day]");
+      if (d) { hf.day = d.dataset.day; this.list(el); if (matchMedia("(max-width: 899px)").matches) $("#hsDay", el).scrollIntoView({ behavior: "smooth", block: "nearest" }); return; }
+      const bp = e.target.closest("[data-billpay]"); if (bp) return openBillPay(bp.dataset.billpay);
+      const ad = e.target.closest("[data-addday]");
+      if (ad) { const [y, m, dd] = ad.dataset.addday.split("-").map(Number); const n = new Date(); trxForm(null, hf.type === "income" ? "income" : "expense", new Date(y, m - 1, dd, n.getHours(), n.getMinutes())); return; }
+      if (e.target.closest("[data-godebt]")) location.hash = "#/plan";
+    });
     $("#hsQ", el).oninput = e => { hf.q = e.target.value; this.list(el); };
     $("#hsType", el).onclick = e => { const b = e.target.closest("[data-type]"); if (!b) return; hf.type = b.dataset.type; el.querySelectorAll("#hsType .chip").forEach(c => c.classList.toggle("active", c === b)); this.list(el); };
     $("#hsWallet", el).onchange = e => { hf.wallet = e.target.value; this.list(el); };
@@ -650,9 +672,100 @@ VIEWS.history = {
       <div class="sum-box"><small>Masuk</small><b style="color:var(--income)">${money(s.income)}</b></div>
       <div class="sum-box"><small>Keluar</small><b style="color:var(--expense)">${money(s.expense)}</b></div>
       <div class="sum-box"><small>Selisih</small><b>${money(s.income - s.expense)}</b></div>`;
+    if (hf.mode === "cal") return renderCalendar(el, list);
     $("#hsList", el).innerHTML = state.view.ready ? trxGrouped(list) : `<div style="padding:12px"><div class="skeleton"></div></div>`;
   },
 };
+
+/* ─── Kalender pengeluaran ─── */
+function renderCalendar(el, list) {
+  const p = state.view.period;
+  if (!p) return;
+  if (!state.view.ready) { $("#hsCal", el).innerHTML = `<div class="skeleton" style="height:280px"></div>`; return; }
+  const metric = hf.type === "income" ? "income" : hf.type === "transfer" ? "transfer" : "expense";
+  const value = metric === "income" ? t => (t.type === "income" ? t.amount : 0)
+    : metric === "transfer" ? t => (["transfer", "adjust"].includes(t.type) ? Math.abs(t.amount) : 0)
+    : t => (t.type === "expense" ? t.amount : 0);
+  const filtered = !!(hf.q.trim() || hf.wallet || hf.cat);
+  const budget = metric === "expense" && !filtered ? budgetFor(p.key).amount || 0 : 0;
+  const current = (state.view.offset || 0) === 0;
+  const cal = buildCalendar({ start: p.start, end: p.end, list, value, bills: metric === "expense" ? state.bills : [], debts: metric === "transfer" ? [] : state.debts, budget, now: new Date(), weekStart: 0 });
+  if (!cal.days.has(hf.day)) hf.day = defaultSelectedDay(cal);
+  const st = cal.stats;
+  const short = n => esc(rupiahShort(n).replace(" ", ""));
+  const blur = hidden() ? " blur" : "";
+  const word = { expense: ["Pengeluaran", "Tanpa belanja", "Terboros"], income: ["Pemasukan", "Tanpa pemasukan", "Pemasukan terbesar"], transfer: ["Pindah dana", "Tanpa pindah dana", "Terbesar"] }[metric];
+  const dayShort = c => `${WEEKDAY_SHORT[c.dow]} ${c.day} ${BULAN[c.date.getMonth()]}`;
+
+  // ringkasan
+  const boxes = [
+    [`Rata-rata/hari`, money(st.avg), `${st.elapsed} hari${st.tetapTotal ? " · di luar Tetap" : " berjalan"}`],
+    [word[1], `<span class="num">${st.noSpend} hari</span>`, st.elapsed ? `dari ${st.elapsed} hari` : ""],
+    [word[2], st.maxDay ? money(st.maxDay.rutin) : "—", st.maxDay ? dayShort(st.maxDay) : ""],
+  ];
+  if (budget && current) boxes.push(["Jatah tersisa/hari", money(st.perDayLeft), `${st.daysLeft} hari lagi`]);
+  else if (budget) boxes.push(["Lewat jatah harian", `<span class="num">${st.overAllowance} hari</span>`, `jatah ${rupiah(st.allowance)}`]);
+  else if (st.weekendDays && st.weekdayDays) boxes.push(["Akhir pekan/hari", money(st.weekendAvg), `hari kerja ${rupiah(st.weekdayAvg)}`]);
+  $("#hsCalStats", el).innerHTML = boxes.map(([l, v, sub]) => `<div class="sum-box"><small>${esc(l)}</small><b>${v}</b>${sub ? `<small class="faint">${esc(sub)}</small>` : ""}</div>`).join("");
+
+  // grid
+  const order = [0, 1, 2, 3, 4, 5, 6];
+  const head = order.map(i => `<div class="cal-dow${i === 0 ? " sun" : ""}">${WEEKDAY_SHORT[i]}</div>`).join("");
+  const cellHtml = c => {
+    if (!c) return `<div class="cal-cell empty" aria-hidden="true"></div>`;
+    const mk = [
+      c.income && metric !== "income" ? `<i class="mk inc" title="Ada pemasukan"></i>` : "",
+      c.bills.length ? `<i class="mk bill${c.bills.every(b => b.paid) ? " paid" : ""}" title="Tagihan"></i>` : "",
+      c.debts.length ? `<i class="mk debt" title="Jatuh tempo utang/piutang"></i>` : "",
+      c.tetap ? `<i class="mk tetap" title="Pengeluaran Tetap"></i>` : "",
+    ].join("");
+    const cls = ["cal-cell", "l" + c.level, c.isToday && "today", c.future && "future", c.key === hf.day && "sel", c.dow === 0 && "sun"].filter(Boolean).join(" ");
+    const aria = `${dayLabel(c.key)}: ${c.amount ? rupiah(c.amount) : "tidak ada " + word[0].toLowerCase()}${c.bills.length ? ", ada tagihan" : ""}`;
+    return `<button type="button" class="${cls}" data-day="${c.key}" aria-label="${esc(aria)}" aria-pressed="${c.key === hf.day}">
+      <span class="cal-d">${c.firstOfMonth ? `${c.day}<small> ${BULAN[c.date.getMonth()]}</small>` : c.day}</span>
+      <span class="cal-amt num${blur}">${c.amount ? short(c.amount) : ""}</span>
+      <span class="cal-mk">${mk}</span>
+    </button>`;
+  };
+  $("#hsCal", el).innerHTML = `<div class="cal-grid m-${metric}">${head}${cal.weeks.flat().map(cellHtml).join("")}</div>`;
+  const subj = metric === "expense" ? "belanja rutin" : metric === "income" ? "pemasukan" : "pindah dana";
+  const refTxt = st.allowance ? `Warna = ${subj} dibanding jatah harian ${rupiah(st.allowance)} (budget ÷ ${cal.cells.length} hari).`
+    : st.ref ? `Warna = ${subj} dibanding hari biasa (${rupiah(st.ref)}).` : "";
+  const tetapTxt = st.tetapTotal ? ` Pengeluaran Tetap (${rupiah(st.tetapTotal)}) tidak ikut diwarnai.` : "";
+  $("#hsCalLegend", el).innerHTML = `
+    <div class="cal-scale m-${metric}"><span>Ringan</span><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>Berat</span></div>
+    <div class="cal-keys"><span><i class="mk inc"></i>Pemasukan</span>${metric === "expense" ? `<span><i class="mk bill"></i>Tagihan</span>` : ""}${metric !== "transfer" ? `<span><i class="mk debt"></i>Utang/piutang</span>` : ""}${st.tetapTotal ? `<span><i class="mk tetap"></i>Tetap</span>` : ""}</div>
+    ${refTxt ? `<div class="hint">${esc(refTxt + tetapTxt)}</div>` : ""}`;
+
+  // detail hari
+  const c = cal.days.get(hf.day);
+  const dayList = list.filter(t => dayKey(t.date) === hf.day).sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  let body = `<div class="card-head"><h2>${esc(dayLabel(hf.day))}</h2>${c?.amount ? `<b class="num${blur}" style="color:var(--${metric === "income" ? "income" : "expense"})">${esc(rupiah(c.amount))}</b>` : ""}</div>`;
+  if (c && st.allowance && !c.future) {
+    const v = c.rutin, pct = Math.round(v / st.allowance * 100);
+    body += `<div class="progress ${pct > 100 ? "w100" : pct >= 80 ? "w80" : ""}" style="margin:2px 0 6px"><i style="width:${Math.min(100, pct)}%"></i></div>
+      <div class="budget-meta" style="margin-bottom:8px"><span>${pct}% dari jatah harian</span><span>${v > st.allowance ? "Lebih " + money(v - st.allowance) : "Sisa " + money(st.allowance - v)}</span></div>`;
+  }
+  const extra = [];
+  for (const b of c?.bills || []) extra.push(`<div class="cal-due"><span>🧾 <b>${esc(b.name)}</b> · ${money(b.amount)}</span>${b.paid ? `<span class="pill ok">Lunas ✓</span>` : `<button class="btn btn-sm btn-primary" data-billpay="${esc(b.id)}">Bayar</button>`}</div>`);
+  for (const d of c?.debts || []) extra.push(`<div class="cal-due" data-godebt><span>${d.kind === "utang" ? "💸 Bayar utang ke" : "🤝 Tagih piutang"} <b>${esc(d.person)}</b> · sisa ${money(d.remaining)}</span><span class="faint">›</span></div>`);
+  if (extra.length) body += `<div class="cal-dues">${extra.join("")}</div>`;
+  if (dayList.length) body += `<div class="trx-list">${dayList.map(trxRow).join("")}</div>`;
+  else if (c && !c.future) body += `<div class="empty" style="padding:18px 8px"><div class="e-ico">${metric === "expense" && !filtered ? "🎉" : "🪹"}</div>${metric === "expense" && !filtered ? "Hari tanpa pengeluaran — mantap!" : "Tidak ada transaksi."}</div>`;
+  else if (!extra.length) body += `<p class="muted" style="margin:4px 0 10px">Belum ada transaksi.</p>`;
+  body += `<button class="btn btn-ghost btn-sm" data-addday="${esc(hf.day)}" style="margin-top:8px">${icon("plus")} Catat di tanggal ini</button>`;
+  $("#hsDay", el).innerHTML = body;
+
+  // pola per hari
+  const dow = $("#hsDow", el);
+  if (st.spendDays >= 3 && st.topDow >= 0) {
+    const mx = Math.max(...st.byWeekday) || 1;
+    const rows = [1, 2, 3, 4, 5, 6, 0].map(i => `<div class="dow-row${i === st.topDow ? " top" : ""}"><span>${WEEKDAY_SHORT[i]}</span><div class="dow-bar"><i style="width:${(st.byWeekday[i] / mx * 100).toFixed(1)}%"></i></div><b class="num${blur}">${short(st.byWeekday[i])}</b></div>`).join("");
+    dow.innerHTML = `<div class="card-head"><h2>📊 Pola per hari</h2></div>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">${metric === "expense" ? "Belanja rutin paling besar" : metric === "income" ? "Pemasukan terbanyak" : "Pindah dana terbanyak"} di hari <b>${HARI[st.topDow]}</b> (rata-rata ${money(st.byWeekday[st.topDow])}).</p>${rows}`;
+    dow.classList.remove("hidden");
+  } else dow.classList.add("hidden");
+}
 
 /* ═══════════ VIEW: BUDGET & STATISTIK ═══════════ */
 let trendCache = { key: "", data: null, loading: false };
@@ -846,13 +959,13 @@ VIEWS.settings = {
 /* ═══════════ SHEETS ═══════════ */
 
 /* ─── Form transaksi (tambah / ubah) ─── */
-function trxForm(existing = null, presetType = "expense") {
+function trxForm(existing = null, presetType = "expense", presetDate = null) {
   const ws = activeWallets();
   if (!ws.length) { toast("Tambah dompet terlebih dahulu.", "warn"); return walletSheet(); }
   if (existing?.type === "adjust") return toast("Penyesuaian saldo tidak bisa diubah, hapus lalu buat ulang.", "warn");
   const lastWallet = pref.get("lastWallet", ws[0].id);
   const lastOwner = pref.get("lastOwner", myNick() || owners()[0]);
-  const f = existing ? { ...existing } : { type: presetType, walletId: ws.some(w => w.id === lastWallet) ? lastWallet : ws[0].id, toWalletId: "", owner: lastOwner, toOwner: lastOwner, expenseType: "Rutin", date: new Date(), amount: 0, note: "", category: "" };
+  const f = existing ? { ...existing } : { type: presetType, walletId: ws.some(w => w.id === lastWallet) ? lastWallet : ws[0].id, toWalletId: "", owner: lastOwner, toOwner: lastOwner, expenseType: "Rutin", date: presetDate || new Date(), amount: 0, note: "", category: "" };
   const wsForSelect = existing ? allWallets().filter(w => !w.archived || w.id === existing.walletId || w.id === existing.toWalletId) : ws;
   const wOpts = sel => wsForSelect.map(w => `<option value="${esc(w.id)}" ${w.id === sel ? "selected" : ""}>${walletIcon(w.type)} ${esc(w.name)}${w.owner ? ` (${esc(w.owner)})` : ""}</option>`).join("");
   const oOpts = sel => [...new Set([...owners(), sel].filter(Boolean))].map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
